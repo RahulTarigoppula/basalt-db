@@ -7,6 +7,12 @@ export const COST = {
   SEQ_PAGE: 1.0,
   /** Random page read (index -> table lookup, B+tree descent). */
   RANDOM_PAGE: 1.25,
+  /**
+   * Per row fetched from the table by rowid after an index match. Measured in Node a cached B+tree descent plus the
+   * record decode costs about twice a sequential row, not a disk page: with the buffer pool holding the hot interior
+   * pages, `RANDOM_PAGE` per lookup made an index range over 4% of a table lose to a full scan.
+   */
+  ROWID_LOOKUP: 0.08,
   /** Per row handled by an operator (decode, copy, pass on). */
   CPU_TUPLE: 0.01,
   /** Per expression evaluated per row (predicates, projections, hash keys). */
@@ -44,7 +50,7 @@ export function seqScanCost(rows: number, columns: number, predicates: number): 
 /** Index scan returning `matched` entries; non-covering scans add one random page per row for the table lookup. */
 export function indexScanCost(tableRows: number, matched: number, indexColumns: number, covering: boolean, predicates: number): number {
   const leafPages = Math.max(1, Math.ceil(matched / rowsPerPage(indexColumns + 1)));
-  const lookups = covering ? 0 : matched * COST.RANDOM_PAGE;
+  const lookups = covering ? 0 : matched * COST.ROWID_LOOKUP;
   return descentCost(tableRows, indexColumns + 1) + leafPages * COST.SEQ_PAGE + lookups + matched * (COST.CPU_TUPLE + predicates * COST.CPU_EXPR);
 }
 

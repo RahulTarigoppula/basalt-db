@@ -35,6 +35,12 @@ export class FreeList {
   private readonly all = new Map<number, number>();
   /** Pages whose tag is <= bound: reusable now. */
   private readonly ready = new Set<number>();
+  /**
+   * Reusable ids in LIFO order (`take` pops from here and skips ids no longer in `ready`). Taking the first entry of
+   * the Set instead made a long transaction quadratic: V8 Set iteration walks over every deleted slot before the first
+   * live one, and a free/allocate churn of thousands of pages per transaction creates exactly that prefix.
+   */
+  private readyStack: number[] = [];
   private bound = 0;
   /** Trunk pages holding the persisted copy of this list (freed when a new copy is written). */
   trunkPages: number[] = [];
@@ -48,24 +54,34 @@ export class FreeList {
   /** Records `pageId` as freed by `txnId` (0 = reusable immediately). Idempotent. */
   add(pageId: number, txnId: number): void {
     this.all.set(pageId, txnId);
-    if (txnId <= this.bound) this.ready.add(pageId);
+    if (txnId <= this.bound) this.markReady(pageId);
     else this.ready.delete(pageId);
   }
 
   /** Hands out a reusable page id, or undefined if none is eligible. */
   take(): number | undefined {
-    if (this.ready.size === 0) return undefined;
-    const id = this.ready.values().next().value as number;
-    this.ready.delete(id);
-    this.all.delete(id);
-    return id;
+    if (this.ready.size === 0) { this.readyStack.length = 0; return undefined; }
+    for (;;) {
+      const id = this.readyStack.pop();
+      if (id === undefined) return undefined;
+      if (!this.ready.has(id)) continue; // stale: removed (rollback / truncate) after it was pushed
+      this.ready.delete(id);
+      this.all.delete(id);
+      return id;
+    }
   }
 
   /** Publishes the reclamation watermark: entries tagged `<= bound` become reusable. */
   setBound(bound: number): void {
     this.bound = bound;
     if (this.ready.size === this.all.size) return;
-    for (const [id, tag] of this.all) if (tag <= bound) this.ready.add(id);
+    for (const [id, tag] of this.all) if (tag <= bound) this.markReady(id);
+  }
+
+  private markReady(id: number): void {
+    if (this.ready.has(id)) return;
+    this.ready.add(id);
+    this.readyStack.push(id);
   }
 
   /** Un-frees `pageId` (rollback of the transaction that freed it). */
@@ -98,6 +114,7 @@ export class FreeList {
   load(pager: Pager, head: number): void {
     this.all.clear();
     this.ready.clear();
+    this.readyStack = [];
     this.trunkPages = [];
     let id = head;
     const seen = new Set<number>();

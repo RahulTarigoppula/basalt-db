@@ -162,7 +162,7 @@ Behavioural choices match SQLite where the differential fuzzer depends on it: in
 ```
 npx vitest run
 Test Files  13 passed (13)
-     Tests  1291 passed (1291)
+     Tests  1296 passed (1291)
 ```
 
 - `tests/storage`: key encoding round trips and ordering; B+tree against a reference `Map` over 100,000 random inserts, deletes and gets with commits; variable-length keys up to the maximum; overflow values; pager crash simulation (discard unsynced writes, reopen, previous snapshot intact); free-list reuse; buffer-pool eviction under pin pressure; transaction visibility.

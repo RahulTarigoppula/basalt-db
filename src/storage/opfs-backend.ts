@@ -50,6 +50,14 @@ export class OpfsBackend implements Backend {
     if (n !== PAGE_SIZE) throw new StorageError(`short write of page ${pageId}: ${n} bytes`);
   }
 
+  /** One access-handle write for a run of consecutive pages (commit coalesces adjacent dirty pages). */
+  writeManySync(firstPageId: number, data: Uint8Array): void {
+    const n = data.length / PAGE_SIZE;
+    if (firstPageId + n > this.pages) throw new StorageError(`write of pages ${firstPageId}..${firstPageId + n - 1} beyond end of file (${this.pages} pages)`);
+    const written = this.handle.write(data, { at: firstPageId * PAGE_SIZE });
+    if (written !== data.length) throw new StorageError(`short write of pages ${firstPageId}..${firstPageId + n - 1}: ${written} bytes`);
+  }
+
   extendSync(newPageCount: number): void {
     this.handle.truncate(newPageCount * PAGE_SIZE);
     this.pages = newPageCount;

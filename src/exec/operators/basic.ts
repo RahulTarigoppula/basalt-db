@@ -127,6 +127,46 @@ export function compareKeys(a: Value[], b: Value[], keys: readonly CompiledSortK
   return 0;
 }
 
+/** Compares one key position: inline fast paths for same-typed INTEGER / REAL / TEXT pairs, `compareValues` otherwise. */
+function compareOne(x: Value, y: Value, desc: boolean, nullsFirst: boolean): number {
+  if (x === null || y === null) {
+    if (x === y) return 0;
+    return ((x === null) === nullsFirst) ? -1 : 1;
+  }
+  let c: number;
+  const tx = typeof x;
+  if (tx === typeof y) {
+    if (tx === "bigint" || tx === "string") c = (x as bigint) < (y as bigint) ? -1 : (x as bigint) > (y as bigint) ? 1 : 0;
+    else if (tx === "number" && x === x && y === y) c = (x as number) < (y as number) ? -1 : (x as number) > (y as number) ? 1 : 0;
+    else c = compareValues(x, y);
+  } else c = compareValues(x, y);
+  return desc ? -c : c;
+}
+
+/**
+ * Builds the comparator for an ORDER BY once: the per-key direction and NULL placement are captured as constants and
+ * the one-key case (the common one) has no loop. Semantics are exactly those of `compareKeys`.
+ */
+export function makeKeyComparator(keys: readonly CompiledSortKey[]): (a: Value[], b: Value[]) => number {
+  if (keys.length === 1) {
+    const { desc, nullsFirst } = keys[0]!;
+    return (a, b) => compareOne(a[0]!, b[0]!, desc, nullsFirst);
+  }
+  if (keys.length === 2) {
+    const k0 = keys[0]!, k1 = keys[1]!;
+    return (a, b) => compareOne(a[0]!, b[0]!, k0.desc, k0.nullsFirst) || compareOne(a[1]!, b[1]!, k1.desc, k1.nullsFirst);
+  }
+  const n = keys.length;
+  const descs = keys.map((k) => k.desc), nulls = keys.map((k) => k.nullsFirst);
+  return (a, b) => {
+    for (let i = 0; i < n; i++) {
+      const c = compareOne(a[i]!, b[i]!, descs[i]!, nulls[i]!);
+      if (c !== 0) return c;
+    }
+    return 0;
+  };
+}
+
 /** Default spill threshold (rows). */
 export const SORT_SPILL_THRESHOLD = 100_000;
 
@@ -183,8 +223,8 @@ export class Sort extends OpBase {
         this.cursor = spill.tree.cursor();
         this.cursor.seekFirst();
       } else {
-        const keys = this.keys;
-        this.buf.sort((a, b) => compareKeys(a.keys, b.keys, keys));
+        const cmp = makeKeyComparator(this.keys);
+        this.buf.sort((a, b) => cmp(a.keys, b.keys));
       }
     } finally { this.input.close(); }
   }
@@ -246,7 +286,8 @@ export class TopK extends OpBase {
     const k = lim === undefined || lim < 0 ? Infinity : lim + skip;
     if (k === 0) return;
     const keys = this.keys;
-    const cmp = (a: { keys: Value[]; row: Row }, b: { keys: Value[]; row: Row }): number => compareKeys(a.keys, b.keys, keys);
+    const cmpKeys = makeKeyComparator(keys);
+    const cmp = (a: { keys: Value[]; row: Row }, b: { keys: Value[]; row: Row }): number => cmpKeys(a.keys, b.keys);
     // max-heap on the sort order: the root is the worst row kept
     const heap: { keys: Value[]; row: Row; seq: number }[] = [];
     const less = (i: number, j: number): boolean => { const c = cmp(heap[i]!, heap[j]!); return c > 0 || (c === 0 && heap[i]!.seq < heap[j]!.seq); }; // "greater" is at the top

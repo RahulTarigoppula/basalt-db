@@ -32,6 +32,9 @@ export class PageRef {
   }
 }
 
+/** Longest run of adjacent dirty pages written with one `writeManySync` call (256 pages = 1 MB staging buffer). */
+const MAX_COALESCED_PAGES = 256;
+
 export class BufferPool {
   private readonly frames: PageRef[] = [];
   private readonly byPage = new Map<number, PageRef>();
@@ -90,15 +93,38 @@ export class BufferPool {
     ref.dirty = false;
   }
 
-  /** Writes every dirty page to the backend (no fsync) and marks them clean. */
+  /**
+   * Writes every dirty page to the backend (no fsync) and marks them clean. Dirty pages are written in page-id order and
+   * runs of adjacent ids go through `Backend.writeManySync` as one write when the backend offers it.
+   */
   flush(): void {
-    for (const ref of this.frames) {
-      if (ref.id >= 0 && ref.dirty) {
-        this.backend.writeSync(ref.id, ref.data);
-        ref.dirty = false;
+    const dirty: PageRef[] = [];
+    for (const ref of this.frames) if (ref.id >= 0 && ref.dirty) dirty.push(ref);
+    if (dirty.length === 0) return;
+    dirty.sort((a, b) => a.id - b.id);
+    const many = this.backend.writeManySync;
+    if (!many || dirty.length === 1) {
+      for (const ref of dirty) { this.backend.writeSync(ref.id, ref.data); ref.dirty = false; }
+      return;
+    }
+    let i = 0;
+    while (i < dirty.length) {
+      let j = i + 1;
+      while (j < dirty.length && j - i < MAX_COALESCED_PAGES && dirty[j]!.id === dirty[j - 1]!.id + 1) j++;
+      const run = j - i;
+      if (run === 1) {
+        this.backend.writeSync(dirty[i]!.id, dirty[i]!.data);
+        dirty[i]!.dirty = false;
+      } else {
+        const needed = run * PAGE_SIZE;
+        if (this.staging.length < needed) this.staging = new Uint8Array(needed);
+        for (let k = 0; k < run; k++) { const ref = dirty[i + k]!; this.staging.set(ref.data, k * PAGE_SIZE); ref.dirty = false; }
+        many.call(this.backend, dirty[i]!.id, needed === this.staging.length ? this.staging : this.staging.subarray(0, needed));
       }
+      i = j;
     }
   }
+  private staging = new Uint8Array(0);
 
   /** Iterates resident dirty page ids. */
   *dirtyPages(): IterableIterator<number> {

@@ -51,6 +51,16 @@ export class NodeFileBackend implements Backend {
     }
   }
 
+  /** One `fs.writeSync` for a run of consecutive pages (commit coalesces adjacent dirty pages). */
+  writeManySync(firstPageId: number, data: Uint8Array): void {
+    const n = data.length / PAGE_SIZE;
+    if (firstPageId + n > this.pages) throw new StorageError(`write of pages ${firstPageId}..${firstPageId + n - 1} beyond end of file (${this.pages} pages)`);
+    let done = 0;
+    while (done < data.length) {
+      done += writeSync(this.fd, data, done, data.length - done, firstPageId * PAGE_SIZE + done);
+    }
+  }
+
   extendSync(newPageCount: number): void {
     ftruncateSync(this.fd, newPageCount * PAGE_SIZE);
     this.pages = newPageCount;

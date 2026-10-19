@@ -427,38 +427,74 @@ export function encodeRecord(row: readonly Value[]): Uint8Array {
 
 /** Decodes a record produced by `encodeRecord`. BLOB payloads are copied out of `bytes`. */
 export function decodeRecord(bytes: Uint8Array): Value[] {
+  // Hot path of every scan: the only allocation per row should be the result array (plus the strings
+  // and blobs it holds). Header codes/lengths go into module-level scratch arrays, small integers are
+  // read by hand (big-endian); no DataView is created per row.
   let pos = 0;
-  const n = readVarint(bytes, pos);
-  pos += varintSize(n);
-  const codes = new Uint8Array(n);
-  const lengths = new Array<number>(n);
+  let n = bytes[0]!;
+  if (n & 0x80) { n = readVarint(bytes, 0); pos = varintSize(n); } else pos = 1;
+  if (n > recCodes.length) { recCodes = new Uint8Array(n * 2); recLengths = new Array<number>(n * 2).fill(0); }
+  const codes = recCodes, lengths = recLengths;
   for (let i = 0; i < n; i++) {
     const code = bytes[pos++]!;
     codes[i] = code;
     if (code === REC_TEXT || code === REC_BLOB) {
-      const len = readVarint(bytes, pos);
-      pos += varintSize(len);
+      let len = bytes[pos]!;
+      if (len & 0x80) { len = readVarint(bytes, pos); pos += varintSize(len); } else pos++;
       lengths[i] = len;
     }
   }
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const out = new Array<Value>(n);
   for (let i = 0; i < n; i++) {
     switch (codes[i]) {
       case REC_NULL: out[i] = null; break;
       case REC_FALSE: out[i] = false; break;
       case REC_TRUE: out[i] = true; break;
-      case REC_INT8: out[i] = BigInt(view.getInt8(pos)); pos += 1; break;
-      case REC_INT16: out[i] = BigInt(view.getInt16(pos)); pos += 2; break;
-      case REC_INT32: out[i] = BigInt(view.getInt32(pos)); pos += 4; break;
-      case REC_INT64: out[i] = view.getBigInt64(pos); pos += 8; break;
-      case REC_REAL: out[i] = view.getFloat64(pos); pos += 8; break;
-      case REC_TEXT: { const len = lengths[i]!; out[i] = textDecoder.decode(bytes.subarray(pos, pos + len)); pos += len; break; }
+      case REC_INT8: out[i] = BigInt((bytes[pos]! << 24) >> 24); pos += 1; break;
+      case REC_INT16: out[i] = BigInt(((bytes[pos]! << 8) | bytes[pos + 1]!) << 16 >> 16); pos += 2; break;
+      case REC_INT32: out[i] = BigInt((bytes[pos]! << 24) | (bytes[pos + 1]! << 16) | (bytes[pos + 2]! << 8) | bytes[pos + 3]!); pos += 4; break;
+      case REC_INT64: {
+        const hi = (bytes[pos]! << 24) | (bytes[pos + 1]! << 16) | (bytes[pos + 2]! << 8) | bytes[pos + 3]!;
+        const lo = ((bytes[pos + 4]! << 24) | (bytes[pos + 5]! << 16) | (bytes[pos + 6]! << 8) | bytes[pos + 7]!) >>> 0;
+        out[i] = (BigInt(hi) << 32n) | BigInt(lo);
+        pos += 8;
+        break;
+      }
+      case REC_REAL: {
+        // Big-endian IEEE754 through a shared scratch pair (a DataView per row was the hottest line of a scan).
+        if (LITTLE_ENDIAN) for (let k = 0; k < 8; k++) f64Bytes[7 - k] = bytes[pos + k]!;
+        else for (let k = 0; k < 8; k++) f64Bytes[k] = bytes[pos + k]!;
+        out[i] = f64Scratch[0]!;
+        pos += 8;
+        break;
+      }
+      case REC_TEXT: { const len = lengths[i]!; out[i] = decodeUtf8(bytes, pos, len); pos += len; break; }
       case REC_BLOB: { const len = lengths[i]!; out[i] = bytes.slice(pos, pos + len); pos += len; break; }
       default: throw new RangeError(`invalid record type code ${codes[i]}`);
     }
   }
   return out;
+}
+
+let recCodes = new Uint8Array(64);
+let recLengths: number[] = new Array<number>(64).fill(0);
+const f64Scratch = new Float64Array(1);
+const f64Bytes = new Uint8Array(f64Scratch.buffer);
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+
+/** UTF-8 decode of `len` bytes at `pos`: short pure-ASCII strings (the common case) skip the TextDecoder call. */
+function decodeUtf8(bytes: Uint8Array, pos: number, len: number): string {
+  if (len <= 48) {
+    let s = "";
+    const end = pos + len;
+    for (let i = pos; i < end; i++) {
+      const b = bytes[i]!;
+      if (b >= 0x80) return textDecoder.decode(bytes.subarray(pos, end));
+      s += String.fromCharCode(b);
+    }
+    return s;
+  }
+  return textDecoder.decode(bytes.subarray(pos, pos + len));
 }
 
 /** Number of columns in a record without decoding it. */

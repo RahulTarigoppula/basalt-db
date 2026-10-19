@@ -310,11 +310,14 @@ export class Database {
   /** Binds, plans and runs one statement under an already acquired transaction. */
   private execute(ast: AstStatement, sql: string, params: Params, schema: SchemaSet | WritableCatalog, txn: WriteTxn | null, onPlan: ((p: PlanNode) => void) | undefined, prepared: Prepared | undefined): QueryResult {
     const key = this.schemaKey(schema);
-    let p = prepared ?? this.planCache.get(sql);
+    // `db.explain(sql)` wraps the statement in an EXPLAIN node but passes the original text, so the
+    // cache key must carry the statement kind or a later `query(sql)` would replay the plan rows.
+    const cacheKey = ast.type === "explain" ? `explain:${sql}` : sql;
+    let p = prepared ?? this.planCache.get(cacheKey);
     if (!p || p.schemaKey !== key) {
       const bound = bind(ast, schema, builtinFunctions, { sql });
       p = { sql, ast, bound, plan: null, schemaKey: key, columns: [], shared: null, root: null, builder: null };
-      if (prepared) Object.assign(prepared, p); else this.cachePlan(sql, p);
+      if (prepared) Object.assign(prepared, p); else this.cachePlan(cacheKey, p);
     }
     const bound = p.bound;
     const paramValues = this.bindParams(bound, params);

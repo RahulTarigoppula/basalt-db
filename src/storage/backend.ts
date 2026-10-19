@@ -16,6 +16,11 @@ export interface Backend {
   readSync(pageId: number, into: Uint8Array): void;
   /** Writes `data` (exactly `pageSize` bytes) as page `pageId`; the page must exist (see `extendSync`). */
   writeSync(pageId: number, data: Uint8Array): void;
+  /**
+   * Optional: writes `data` (a whole number of pages) as consecutive pages starting at `firstPageId` in one call.
+   * The buffer pool uses it to coalesce adjacent dirty pages at commit; without it every page is written on its own.
+   */
+  writeManySync?(firstPageId: number, data: Uint8Array): void;
   /** Grows (or shrinks) the file to `newPageCount` pages; new pages read as zeroes. */
   extendSync(newPageCount: number): void;
   /** Makes all previous writes durable (fsync). */

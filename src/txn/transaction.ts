@@ -117,13 +117,35 @@ export class WriteTxn implements WriteContext {
     this.pager.truncate(token.pageCount);
   }
 
-  /** Closes `token` (SQL `RELEASE`): pages allocated since it become modifiable in place again. */
+  /**
+   * Closes `token` (SQL `RELEASE`): pages allocated since it become modifiable in place again.
+   *
+   * Pages freed since the savepoint that this transaction itself allocated (in the target epoch or
+   * later) were never visible to any reader and no open savepoint can still need them, so they are
+   * retagged `0` and become reusable at once instead of waiting for commit. Without this every
+   * statement of a long transaction (each runs under its own savepoint) would copy the pages the
+   * previous statement wrote and the file would grow by a few pages per statement.
+   */
   release(token: SavepointToken): void {
     this.assertActive();
     if (token.epoch < 1 || token.epoch >= this.epochs.length) throw new TransactionError("savepoint is no longer active");
     const target = this.epochs[token.epoch - 1]!;
     for (let e = token.epoch; e < this.epochs.length; e++) for (const id of this.epochs[e]!) target.add(id);
     this.epochs.length = token.epoch;
+    const log = this.freedLog;
+    if (log.length > token.freedLogLength) {
+      let w = token.freedLogLength;
+      for (let i = token.freedLogLength; i < log.length; i++) {
+        const id = log[i]!;
+        if (target.has(id)) {
+          target.delete(id);
+          this.pager.free(id, 0);
+        } else {
+          log[w++] = id;
+        }
+      }
+      log.length = w;
+    }
   }
 
   /** @internal every page allocated by this transaction, across epochs. */
