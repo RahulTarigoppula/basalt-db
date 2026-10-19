@@ -2,7 +2,9 @@
 
 A relational database engine written from scratch in TypeScript with zero runtime dependencies. Pager, CLOCK buffer pool, copy-on-write B+tree, snapshot-isolation MVCC, SQL parser and binder, cost-based planner, Volcano executor. The same code runs in Node over a file and in the browser over the origin private file system (OPFS) inside a Web Worker.
 
-**Try it:** https://rahultarigoppula.github.io/basalt-db/ (everything runs in your browser; nothing leaves the device)
+**Try it:** https://rahultarigoppula.github.io/basalt-db/
+
+Everything on that page runs locally in your browser: the engine executes inside a Web Worker and the database file lives in the origin private file system (OPFS). There is no server, no account, no analytics and no network request after the page loads. Reset database on the Notebook screen deletes the file.
 
 ![Basalt plan visualiser: EXPLAIN ANALYZE of a four-table TPC-H join](docs/screenshots/hero.png)
 
@@ -142,13 +144,13 @@ Deep links: `https://rahultarigoppula.github.io/basalt-db/?q=SELECT%201` pre-fil
 
 | Area | Supported | Not supported |
 |---|---|---|
-| Types | INTEGER (64-bit, exact), REAL, TEXT, BLOB, BOOLEAN, NULL with three-valued logic | Type affinity conversions on insert, DATE/TIME types (dates are TEXT) |
-| DDL | CREATE TABLE (constraints, composite keys, defaults, CHECK), CREATE [UNIQUE] INDEX (partial), CREATE VIEW, DROP, ALTER TABLE RENAME TO / ADD COLUMN | Generated columns, expression indexes, triggers, foreign-key enforcement (clauses parse and are ignored) |
-| DML | INSERT (multi-row, SELECT, OR REPLACE, ON CONFLICT DO UPDATE, RETURNING), UPDATE, DELETE | UPDATE ... FROM, MERGE |
+| Types | INTEGER (64-bit, exact), REAL, TEXT, BLOB, BOOLEAN, NULL with three-valued logic | Type affinity conversions on insert and update, DATE/TIME types (dates are TEXT) |
+| DDL | CREATE TABLE (constraints, composite keys, defaults, CHECK), CREATE [UNIQUE] INDEX (partial), CREATE VIEW, DROP, ALTER TABLE RENAME TO / ADD COLUMN | ALTER TABLE DROP COLUMN, generated columns, expression indexes, triggers, foreign-key enforcement (clauses parse and are ignored) |
+| DML | INSERT (multi-row, SELECT, OR REPLACE, OR IGNORE, ON CONFLICT DO NOTHING / DO UPDATE), UPDATE (including UPDATE ... FROM), DELETE, RETURNING on all three | MERGE, type affinity on write (an INTEGER stored in a REAL column stays INTEGER) |
 | Joins | INNER, LEFT, RIGHT, FULL OUTER, CROSS, NATURAL, USING, comma joins, semi/anti via EXISTS and IN | LATERAL |
 | Subqueries | Scalar, IN, EXISTS, correlated (re-evaluated per row when not decorrelated), derived tables | Correlated CTEs |
-| Aggregation | COUNT, COUNT(DISTINCT), SUM, TOTAL, AVG, MIN, MAX, GROUP_CONCAT, HAVING | FILTER clause, user-defined aggregates |
-| Windows | ROW_NUMBER, RANK, DENSE_RANK, NTILE, LAG, LEAD, FIRST_VALUE, LAST_VALUE, aggregates over frames (ROWS BETWEEN) | RANGE and GROUPS frames, named windows |
+| Aggregation | COUNT, COUNT(DISTINCT), SUM, TOTAL, AVG, MIN, MAX, GROUP_CONCAT, HAVING, FILTER (WHERE ...) | User-defined aggregates |
+| Windows | ROW_NUMBER, RANK, DENSE_RANK, NTILE, LAG, LEAD, FIRST_VALUE, LAST_VALUE, aggregates over ROWS, RANGE and GROUPS frames, named windows (WINDOW w AS ...), EXCLUDE | |
 | Set operations | UNION, UNION ALL, INTERSECT, EXCEPT | |
 | CTEs | WITH, WITH RECURSIVE (UNION and UNION ALL) | |
 | Functions | length, upper, lower, substr, instr, replace, trim family, abs, round, floor, ceil, sqrt, pow, mod, min/max scalar, typeof, hex, random, printf/format, coalesce, nullif, iif | REGEXP, MATCH, date/time functions, JSON |
@@ -161,8 +163,8 @@ Behavioural choices match SQLite where the differential fuzzer depends on it: in
 
 ```
 npx vitest run
-Test Files  13 passed (13)
-     Tests  1296 passed (1291)
+Test Files  15 passed (15)
+     Tests  1296 passed (1296)
 ```
 
 - `tests/storage`: key encoding round trips and ordering; B+tree against a reference `Map` over 100,000 random inserts, deletes and gets with commits; variable-length keys up to the maximum; overflow values; pager crash simulation (discard unsynced writes, reopen, previous snapshot intact); free-list reuse; buffer-pool eviction under pin pressure; transaction visibility.
@@ -172,29 +174,47 @@ Test Files  13 passed (13)
 
 ## Benchmarks
 
-In-browser numbers from the Bench screen (Chromium, OPFS backend, engine time only, median of 5 runs after one warm-up; 50,000-row `orders_50k` and TPC-H mini with 7,500 orders and 22,361 line items):
+Two sets of numbers, both engine time only. Numbers depend on the machine; these are from one laptop (Windows 11, Node 22, Chromium 156 headless) and are meant to show the shape of the engine, not to compete with native databases.
 
-| query | rows | median ms |
+Node, `npm run bench` (TPC-H shaped data generated in memory: 1,500 customers, 15,000 orders, 60,000 line items; file backend):
+
+| benchmark | ms | rows/s or rows |
 |---|---:|---:|
-| point lookup (rowid) | 1 | 0.19 |
-| index equality (`customer_id = ?`) | 1 | 0.27 |
-| index range (31 of 730 days) | 1 | 205 |
-| seq scan + filter, 50k rows | 1 | 185 |
-| group by, 25 groups | 25 | 281 |
-| group by, 5,000 groups | 4,999 | 356 |
-| order by + limit 10 (top-k) | 10 | 212 |
-| full sort, 50k rows | 50,000 | 331 |
-| hash join 1.5k x 7.5k | 5 | 17.3 |
-| 3-way join + aggregate | 25 | 203 |
-| window over 7.5k rows | 7,500 | 53.5 |
-| recursive CTE, 10,000 steps | 1 | 4.87 |
+| bulk insert 76.5k rows, no secondary indexes | 1493 | 51,253 rows/s |
+| bulk insert 76.5k rows, 4 secondary indexes | 3002 | 25,480 rows/s |
+| ANALYZE (all tables) | 398 | |
+| Q1 pricing summary | 63.2 | 6 rows |
+| Q3 shipping priority | 45.4 | 4 rows |
+| Q5 local supplier volume | 46.7 | 2 rows |
+| Q6 forecasting revenue | 20.6 | 1 row |
+| Q10 returned items | 51.3 | 20 rows |
+| point lookup by PK (x1000) | 6.0 | 1 row |
+| index lookup orders by customer (x1000) | 12.5 | 1 row |
+| index range lineitem by shipdate | 0.2 | 1 row |
 
-Dataset generation: TPC-H mini (31,386 rows) in 2.7 s, 50,000 orders in 6.0 s, including index builds and `ANALYZE`. Node numbers from `npm run bench` go in `bench/RESULTS.md` once that script has been run on a reference machine.
+In the browser, Bench screen (OPFS backend inside the worker, median of 5 runs after one warm-up; 50,000-row `orders_50k` and TPC-H mini with 7,500 orders and 22,361 line items):
+
+| query | rows | median ms | min ms |
+|---|---:|---:|---:|
+| point lookup (rowid) | 1 | 0.25 | 0.13 |
+| index equality (`customer_id = ?`) | 1 | 0.16 | 0.13 |
+| index range (31 of 730 days) | 1 | 13.4 | 11.1 |
+| seq scan + filter, 50k rows | 1 | 33.8 | 28.9 |
+| group by, 25 groups | 25 | 57.3 | 55.4 |
+| group by, 5,000 groups | 4,999 | 96.4 | 89.5 |
+| order by + limit 10 (top-k) | 10 | 28.0 | 26.5 |
+| full sort, 50k rows | 50,000 | 66.5 | 59.1 |
+| hash join 1.5k x 7.5k | 5 | 6.41 | 6.03 |
+| 3-way join + aggregate | 25 | 55.4 | 45.2 |
+| window over 7.5k rows | 7,500 | 14.2 | 12.2 |
+| recursive CTE, 10,000 steps | 1 | 5.48 | 3.25 |
+
+Dataset generation in the browser: TPC-H mini (31,386 rows) in under 1 s, 50,000 orders in about 5 s, including index builds and `ANALYZE`. The Bench screen has a "Copy as markdown" button so you can regenerate this table on your own machine.
 
 ## Limitations
 
 - Single writer. Concurrent write transactions queue; there is no row-level locking.
-- Sequential scans are evaluated row by row through compiled closures, so scan-heavy queries run at roughly 250,000 rows per second in the browser. There is no vectorised execution.
+- Sequential scans are evaluated row by row through compiled closures, so scan-heavy queries run at roughly one to two million rows per second (a 50,000-row filtered scan takes about 30 ms in Chromium). There is no vectorised execution.
 - The IndexedDB backend keeps the whole file in memory and flushes after commit, so a crash between commit and flush loses the last transaction. Use OPFS (the default in Chromium and Firefox) for durability.
 - No foreign-key enforcement, triggers, generated columns, expression indexes, date/time functions or JSON functions.
 - Keys are limited to 960 bytes; a single row value may be arbitrarily large through overflow pages, but a page holds at most four large cells.
@@ -203,7 +223,7 @@ Dataset generation: TPC-H mini (31,386 rows) in 2.7 s, 50,000 orders in 6.0 s, i
 ## Roadmap
 
 - Within-transaction page reuse: pages freed earlier in the same write transaction are currently not reused until commit, so one prepared `INSERT` per row inside a long transaction grows the file (multi-row `INSERT` avoids it; see the dataset loaders).
-- Date and time functions, `FILTER` clauses, `RANGE` frames.
+- Date and time functions, JSON functions, type affinity on write.
 - Foreign-key enforcement and triggers.
 - Vectorised scans and filter evaluation over leaf pages.
 - A `.basalt` file import in the web app and a CSV importer.

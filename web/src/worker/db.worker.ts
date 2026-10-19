@@ -75,7 +75,7 @@ async function openDb(): Promise<{ backend: BackendKind; name: string; log: stri
 }
 
 function need(): Database {
-  if (!db) throw new Error("database is not open");
+  if (!db) throw new Error("database is not open (the open request failed; reload the page)");
   return db;
 }
 
@@ -154,16 +154,22 @@ const handlers: { [M in MethodName]: (...args: Methods[M]["args"]) => Promise<Me
   },
 };
 
-self.onmessage = async (ev: MessageEvent<Request>) => {
+// Requests are served strictly in order: the page's first request is always `open`, so a query posted before the
+// database finished opening waits for it instead of failing with "database is not open". The engine is synchronous,
+// so serialising here costs nothing and also keeps `reset` (which closes and reopens) from interleaving with a query.
+let chain: Promise<void> = Promise.resolve();
+self.onmessage = (ev: MessageEvent<Request>) => {
   const req = ev.data;
-  let res: Response;
-  try {
-    const fn = handlers[req.method] as (...a: unknown[]) => unknown;
-    const result = await fn(...(req.args as unknown[]));
-    res = { id: req.id, ok: true, result: result as never };
-    if (result instanceof Uint8Array) { (self as unknown as Worker).postMessage(res, [result.buffer]); return; }
-  } catch (e) {
-    res = { id: req.id, ok: false, error: toError(e) };
-  }
-  (self as unknown as Worker).postMessage(res);
+  chain = chain.then(async () => {
+    let res: Response;
+    try {
+      const fn = handlers[req.method] as (...a: unknown[]) => unknown;
+      const result = await fn(...(req.args as unknown[]));
+      res = { id: req.id, ok: true, result: result as never };
+      if (result instanceof Uint8Array) { (self as unknown as Worker).postMessage(res, [result.buffer]); return; }
+    } catch (e) {
+      res = { id: req.id, ok: false, error: toError(e) };
+    }
+    (self as unknown as Worker).postMessage(res);
+  });
 };

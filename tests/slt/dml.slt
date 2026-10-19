@@ -139,6 +139,33 @@ DELETE FROM p WHERE id = 100 RETURNING id
 ----
 100
 
+# RETURNING directly after the table name (no WHERE) must not be taken as an alias.
+statement ok
+INSERT INTO p(id, name) VALUES (200, 'gone'), (201, 'gone')
+
+query I rowsort
+DELETE FROM p WHERE id >= 200 RETURNING id
+----
+200
+201
+
+statement ok
+CREATE TABLE del_all (k INTEGER)
+
+statement ok
+INSERT INTO del_all VALUES (7), (8)
+
+query I rowsort
+DELETE FROM del_all RETURNING k * 2
+----
+14
+16
+
+query I nosort
+SELECT count(*) FROM del_all
+----
+0
+
 query I nosort
 SELECT count(*) FROM p WHERE rowid = id
 ----

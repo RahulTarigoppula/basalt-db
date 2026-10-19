@@ -6,9 +6,12 @@ const STORE = "basalt.cells";
 const ROW_H = 24;
 const OVERSCAN = 12;
 
+// The first cell is idempotent (IF NOT EXISTS plus explicit keys with OR REPLACE) so "Run all" and a reload after
+// "Reset database" rebuild the same three rows instead of duplicating them.
 const DEFAULT_CELLS = [
-  "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, title TEXT NOT NULL, body TEXT, created TEXT DEFAULT '2026-10-19');\nINSERT INTO notes (title, body) VALUES ('hello', 'Basalt runs entirely in this tab'), ('persistence', 'reload the page: this table is still here');",
+  "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, title TEXT NOT NULL, body TEXT, created TEXT DEFAULT '2026-10-19');\nINSERT OR REPLACE INTO notes (id, title, body) VALUES\n  (1, 'hello', 'Basalt runs entirely in this tab: no server, nothing leaves your device'),\n  (2, 'persistence', 'reload the page: this table is still here (OPFS)'),\n  (3, 'next', 'try the Datasets screen, then EXPLAIN a join on the Plan screen');",
   "SELECT id, title, length(body) AS body_len, created FROM notes ORDER BY id",
+  "SELECT title, upper(substr(title, 1, 1)) || substr(title, 2) AS capitalised FROM notes WHERE body LIKE '%page%'",
 ];
 
 function loadCells(): string[] {
@@ -79,7 +82,7 @@ export function notebookScreen(root: HTMLElement): () => void {
   );
   root.append(head, list);
 
-  const cellEls: { el: HTMLElement; ta: HTMLTextAreaElement; run: () => Promise<void> }[] = [];
+  const cellEls: { el: HTMLElement; ta: HTMLTextAreaElement; run: () => Promise<boolean>; waiting: () => void; fail: (msg: string) => void; idle: () => void }[] = [];
 
   function persist(): void { saveCells(cellEls.map((c) => c.ta.value)); }
 
@@ -87,6 +90,9 @@ export function notebookScreen(root: HTMLElement): () => void {
     const ta = h("textarea", { spellcheck: false, placeholder: "SELECT ..." }) as HTMLTextAreaElement;
     ta.value = sql;
     const meta = h("div", { class: "cell-meta" }, h("span", { class: "muted" }, "not run"));
+    const waiting = (): void => { meta.replaceChildren(h("span", { class: "muted" }, "opening database")); };
+    const fail = (msg: string): void => { meta.replaceChildren(h("span", { class: "err" }, msg)); };
+    const idle = (): void => { meta.replaceChildren(h("span", { class: "muted" }, "not run")); };
     const out = h("div");
     const runBtn = h("button", { class: "btn primary", onClick: () => run() }, "Run");
     const explainBtn = h("button", { class: "btn", title: "Open in the plan visualiser", onClick: () => { currentQuery.set(ta.value); location.hash = "#/plan"; } }, "Plan");
@@ -108,9 +114,9 @@ export function notebookScreen(root: HTMLElement): () => void {
         persist();
       }
     });
-    const run = async (): Promise<void> => {
+    const run = async (): Promise<boolean> => {
       const sql = ta.value.trim();
-      if (!sql) return;
+      if (!sql) return true;
       runBtn.disabled = true;
       meta.replaceChildren(h("span", { class: "muted" }, "running"));
       currentQuery.set(sql);
@@ -126,6 +132,7 @@ export function notebookScreen(root: HTMLElement): () => void {
         parts.push(h("span", {}, h("span", { class: "num" }, fmtMs(totalMs))));
         meta.replaceChildren(...parts);
         out.replaceChildren(last && last.columns.length ? resultsGrid(last) : "");
+        return true;
       } catch (e) {
         const info = e instanceof DbError ? e.info : { name: "Error", message: String(e) };
         const where = info.line !== undefined ? ` (line ${info.line}${info.col !== undefined ? `:${info.col}` : ""})` : "";
@@ -139,16 +146,23 @@ export function notebookScreen(root: HTMLElement): () => void {
           pos += Math.max(0, (info.col ?? 1) - 1);
           ta.focus(); ta.setSelectionRange(pos, pos);
         }
+        return false;
       } finally { runBtn.disabled = false; }
     };
-    const entry = { el, ta, run };
+    const entry = { el, ta, run, waiting, fail, idle };
     cellEls.push(entry);
     list.appendChild(el);
     autosize();
     if (focus) ta.focus();
   }
 
-  async function runAll(): Promise<void> { for (const c of cellEls) await c.run(); }
+  /** Runs every cell top to bottom and stops at the first error so later cells do not pile up follow-on errors. */
+  async function runAll(): Promise<void> {
+    for (let i = 0; i < cellEls.length; i++) {
+      const ok = await cellEls[i]!.run();
+      if (!ok) { if (i + 1 < cellEls.length) toast(`Stopped at cell ${i + 1}: fix the error and run again`); return; }
+    }
+  }
 
   async function exportFile(): Promise<void> {
     try {
@@ -164,12 +178,28 @@ export function notebookScreen(root: HTMLElement): () => void {
     if (!confirm("Delete notebook.basalt and start from an empty database? Cells are kept.")) return;
     await db.call("reset");
     db.changed();
-    toast("Database reset");
+    toast("Database reset: running the cells again");
+    await runAll();
   }
 
   for (const sql of cells) addCell(sql, false);
-  if (q) cellEls[0]?.run();
-  else if (firstVisit) runAll();
-  else cellEls[cellEls.length - 1]?.run();
-  return () => { persist(); };
+  // Nothing runs until the worker reports the database open. A fresh database (first visit, or a reload after
+  // Reset database or after the browser dropped OPFS) replays every cell top to bottom; otherwise only the cell that
+  // matters: the deep-linked query or the last one, since the earlier cells' tables already exist in the file.
+  for (const c of cellEls) c.waiting();
+  let disposed = false;
+  db.ready.then(async () => {
+    if (disposed) return;
+    let fresh = firstVisit;
+    try { const s = await db.call("stats"); if (s.tables.length === 0) fresh = true; } catch { /* stats are optional */ }
+    if (disposed) return;
+    for (const c of cellEls) c.idle();
+    if (q && !fresh) await cellEls[0]?.run();
+    else if (fresh) await runAll();
+    else await cellEls[cellEls.length - 1]?.run();
+  }).catch((e) => {
+    const msg = `database failed to open: ${(e as Error).message}`;
+    for (const c of cellEls) c.fail(msg);
+  });
+  return () => { disposed = true; persist(); };
 }

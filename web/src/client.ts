@@ -25,13 +25,23 @@ class Client {
       this.pending.delete(ev.data.id);
       if (ev.data.ok) p.resolve(ev.data.result); else p.reject(new DbError(ev.data.error));
     };
-    this.worker.onerror = (e) => { console.error("worker error", e.message ?? e); };
+    this.worker.onerror = (e) => {
+      console.error("worker error", e.message ?? e);
+      // A worker that failed to start never answers: fail every pending request instead of hanging the UI.
+      for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new DbError({ name: "WorkerError", message: `database worker failed: ${e.message ?? "unknown error"}` })); }
+    };
     // Release the OPFS sync access handle promptly so the next page load can take it.
     window.addEventListener("pagehide", () => this.worker.terminate());
-    this.ready = this.call("open").then((r) => { this.backend = r.backend; this.openLog = r.log; if (r.log.length) console.warn("basalt backend fallback:", r.log.join("; ")); });
+    this.ready = this.send("open").then((r) => { this.backend = r.backend; this.openLog = r.log; if (r.log.length) console.warn("basalt backend fallback:", r.log.join("; ")); });
   }
 
-  call<M extends MethodName>(method: M, ...args: Methods[M]["args"]): Promise<Methods[M]["result"]> {
+  /** Sends one request. Everything except `open` itself waits for the database to be open first. */
+  async call<M extends MethodName>(method: M, ...args: Methods[M]["args"]): Promise<Methods[M]["result"]> {
+    if (method !== "open") await this.ready;
+    return this.send(method, ...args);
+  }
+
+  private send<M extends MethodName>(method: M, ...args: Methods[M]["args"]): Promise<Methods[M]["result"]> {
     const id = this.nextId++;
     const req: Request<M> = { id, method, args };
     return new Promise((resolve, reject) => {

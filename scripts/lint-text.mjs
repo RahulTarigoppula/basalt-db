@@ -17,6 +17,12 @@ const BANNED = new Map([
   ["“", "left double quote (U+201C)"],
   ["”", "right double quote (U+201D)"],
   ["→", "rightwards arrow (U+2192)"],
+  ["…", "horizontal ellipsis (U+2026)"],
+  ["↔", "left right arrow (U+2194)"],
+  ["←", "leftwards arrow (U+2190)"],
+  ["⇒", "double arrow (U+21D2)"],
+  ["•", "bullet (U+2022)"],
+  ["×", "multiplication sign (U+00D7)"],
 ]);
 const EXEMPT_DIRS = ["data/", "web/public/data/", "scripts/lint-text.mjs"];
 const BINARY_EXT = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|safetensors|bin|pdf|zip)$/i;

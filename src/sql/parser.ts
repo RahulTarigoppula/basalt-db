@@ -544,7 +544,8 @@ class Parser {
     const { name: table } = this.expectQualifiedName("table name");
     let alias: string | undefined;
     if (this.accept("AS")) alias = this.expectIdentifier("alias");
-    else if (this.isIdentifierToken(this.peek()) && this.peek().kind !== "string" && !this.at("INDEXED")) alias = this.expectIdentifier("alias");
+    // RETURNING is a non-reserved keyword, so `DELETE FROM t RETURNING ...` must not read it as the alias.
+    else if (this.isIdentifierToken(this.peek()) && this.peek().kind !== "string" && !this.at("INDEXED") && !this.at("RETURNING")) alias = this.expectIdentifier("alias");
     if (this.accept("INDEXED")) { this.expect("BY"); this.expectIdentifier("index name"); }
     else if (this.at("NOT") && this.at("INDEXED", 1)) this.pos += 2;
     let where: Expr | undefined;

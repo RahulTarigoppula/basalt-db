@@ -86,7 +86,7 @@ scans without decoding. Each value is a tag byte plus payload:
 | Value | Bytes | Why |
 |---|---|---|
 | `42n` | `06 80 00 00 00 00 00 00 2a 00` | tag `06`, int64 big-endian with the sign bit flipped (so negatives sort first), flag `00` = integral |
-| `-1n` | `06 7f ff ff ff ff ff ff ff 00` | `0xFFFF…FF ^ 0x8000…00` |
+| `-1n` | `06 7f ff ff ff ff ff ff ff 00` | `0xFFFF...FF ^ 0x8000...00` |
 | `2.5` | `06 80 00 00 00 00 00 00 02 01 c0 04 00 00 00 00 00 00` | `floor = 2`, flag `01`, then the IEEE bits of 2.5 (`4004 0000 0000 0000`) with the sign bit set so all finite doubles order as unsigned bytes |
 | `-2.5` | `06 7f ff ff ff ff ff ff fd 01 3f fb ff ff ff ff ff ff` | `floor = -3`; negative doubles have all bits inverted |
 | `"a\0b"` | `09 61 00 ff 62 00 00` | tag `09`, bytes with `00 -> 00 ff`, terminator `00 00` |
@@ -123,7 +123,7 @@ offset  0  type u8        1  flags u8    2  cellCount u16  4  freeStart u16  6  
 ```
 
 Interior cell `[child u32][keyLen varint][key]`; leaf cell `[keyLen varint][valueLen varint][key][value]`,
-or `[…][key][overflowPage u32]` when the cell would exceed 1000 bytes - then the value lives in a
+or `[...][key][overflowPage u32]` when the cell would exceed 1000 bytes - then the value lives in a
 chain of OVERFLOW pages (4080 payload bytes each). A separator key in an interior page is the first
 key of the subtree to its right, so a lookup descends to the first child whose separator is greater
 than the search key. Leaves have no sibling pointers: under copy-on-write a copied leaf would leave

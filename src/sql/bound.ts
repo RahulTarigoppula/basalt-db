@@ -105,7 +105,7 @@ export interface BoundSubquery {
   select: BoundSelect;
   /**
    * Column references inside the subquery that resolve to relations OUTSIDE it, as seen from the subquery's own scope
-   * (`depth >= 1`). Empty ⇒ uncorrelated (the planner may materialise it once).
+   * (`depth >= 1`). Empty => uncorrelated (the planner may materialise it once).
    */
   outerRefs: BoundColumnRef[];
   correlated: boolean;
@@ -135,7 +135,7 @@ export interface BoundFrame { unit: FrameUnit; start: BoundFrameBound; end: Boun
 export interface BoundWindowSpec {
   partitionBy: BoundExpr[];
   orderBy: BoundOrderBy[];
-  /** Undefined ⇒ default frame (RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW). */
+  /** Undefined => default frame (RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW). */
   frame?: BoundFrame;
 }
 
@@ -226,7 +226,7 @@ export interface BoundUpsert {
   /** Conflict target column indexes (empty = any unique constraint). */
   target: number[];
   targetWhere?: BoundExpr;
-  /** Undefined ⇒ DO NOTHING. Expressions see `rows[0]` = existing row, `rows[1]` = the `excluded` row. */
+  /** Undefined => DO NOTHING. Expressions see `rows[0]` = existing row, `rows[1]` = the `excluded` row. */
   set?: { column: number; expr: BoundExpr }[];
   where?: BoundExpr;
 }
@@ -339,7 +339,7 @@ export type BoundStatement =
 // ───────────────────────────────── helpers ─────────────────────────────────
 
 /**
- * SQLite type-affinity rules applied to a declared type name. `undefined`/empty ⇒ "BLOB" (no affinity).
+ * SQLite type-affinity rules applied to a declared type name. `undefined`/empty => "BLOB" (no affinity).
  * Returns "NUMERIC" for names that match none of the INT/CHAR/BLOB/REAL rules.
  */
 export function affinityOf(typeName: string | undefined): DataType | "NUMERIC" {
