@@ -1,0 +1,360 @@
+# DML and constraints: defaults, NOT NULL, UNIQUE, PRIMARY KEY, CHECK, OR REPLACE/IGNORE, upsert, RETURNING,
+# UPDATE/DELETE with subqueries, rowid, ALTER TABLE, views, indexes, transactions.
+
+statement ok
+CREATE TABLE p(id INTEGER PRIMARY KEY, name TEXT NOT NULL, qty INTEGER DEFAULT 1 CHECK (qty >= 0), tag TEXT UNIQUE)
+
+statement ok
+INSERT INTO p(name, tag) VALUES ('a', 't1'), ('b', 't2')
+
+statement ok
+INSERT INTO p(id, name) VALUES (10, 'c')
+
+statement ok
+INSERT INTO p(name) VALUES ('d')
+
+query ITIT nosort
+SELECT id, name, qty, tag FROM p ORDER BY id
+----
+1 a 1 t1
+2 b 1 t2
+10 c 1 NULL
+11 d 1 NULL
+
+statement error NOT NULL
+INSERT INTO p(name) VALUES (NULL)
+
+statement error UNIQUE
+INSERT INTO p(name, tag) VALUES ('x', 't1')
+
+statement error UNIQUE
+INSERT INTO p(id, name) VALUES (1, 'x')
+
+statement error CHECK
+INSERT INTO p(name, qty) VALUES ('x', -1)
+
+statement error
+INSERT INTO p(id, name) VALUES ('abc', 'x')
+
+statement ok
+INSERT OR IGNORE INTO p(id, name) VALUES (1, 'ignored'), (20, 'kept')
+
+statement ok
+INSERT OR REPLACE INTO p(id, name, tag) VALUES (2, 'b2', 't2')
+
+query IT nosort
+SELECT id, name FROM p ORDER BY id
+----
+1 a
+2 b2
+10 c
+11 d
+20 kept
+
+statement ok
+INSERT INTO p(id, name, qty) VALUES (10, 'c', 5) ON CONFLICT(id) DO UPDATE SET qty = qty + excluded.qty
+
+query II nosort
+SELECT id, qty FROM p WHERE id = 10
+----
+10 6
+
+statement ok
+INSERT INTO p(id, name) VALUES (10, 'zzz') ON CONFLICT DO NOTHING
+
+query T nosort
+SELECT name FROM p WHERE id = 10
+----
+c
+
+statement ok
+INSERT INTO p(name, tag) VALUES ('e', 't2') ON CONFLICT(tag) DO UPDATE SET name = 'merged' WHERE p.name <> 'merged'
+
+query TT nosort
+SELECT name, tag FROM p WHERE tag = 't2'
+----
+merged t2
+
+statement error
+INSERT INTO p(name) VALUES ('x') ON CONFLICT(name) DO NOTHING
+
+query IT nosort
+INSERT INTO p(name) VALUES ('r1'), ('r2') RETURNING id, name
+----
+21 r1
+22 r2
+
+statement ok
+UPDATE p SET qty = qty * 2 WHERE id <= 2
+
+query II nosort
+SELECT id, qty FROM p WHERE id <= 2 ORDER BY id
+----
+1 2
+2 2
+
+statement error CHECK
+UPDATE p SET qty = -5 WHERE id = 1
+
+statement error UNIQUE
+UPDATE p SET tag = 't1' WHERE id = 2
+
+statement ok
+UPDATE p SET id = 100 WHERE id = 20
+
+query I nosort
+SELECT count(*) FROM p WHERE id = 100
+----
+1
+
+query I nosort
+SELECT count(*) FROM p WHERE id = 20
+----
+0
+
+statement ok
+UPDATE p SET qty = (SELECT max(qty) FROM p) WHERE name = 'd'
+
+query I nosort
+SELECT qty FROM p WHERE name = 'd'
+----
+6
+
+query IT nosort
+UPDATE p SET name = upper(name) WHERE id < 3 RETURNING id, name
+----
+1 A
+2 MERGED
+
+statement ok
+DELETE FROM p WHERE id IN (SELECT id FROM p WHERE name LIKE 'r%')
+
+query I nosort
+SELECT count(*) FROM p
+----
+5
+
+query I nosort
+DELETE FROM p WHERE id = 100 RETURNING id
+----
+100
+
+query I nosort
+SELECT count(*) FROM p WHERE rowid = id
+----
+4
+
+statement ok
+CREATE TABLE h(a TEXT, b INTEGER)
+
+statement ok
+INSERT INTO h VALUES ('x', 1), ('y', 2), ('z', 3)
+
+query IT nosort
+SELECT rowid, a FROM h ORDER BY rowid
+----
+1 x
+2 y
+3 z
+
+statement ok
+DELETE FROM h WHERE rowid = 2
+
+statement ok
+INSERT INTO h VALUES ('w', 4)
+
+query IT nosort
+SELECT rowid, a FROM h ORDER BY rowid
+----
+1 x
+3 z
+4 w
+
+statement ok
+ALTER TABLE h ADD COLUMN c INTEGER DEFAULT 7
+
+query TII nosort
+SELECT a, b, c FROM h ORDER BY rowid
+----
+x 1 7
+z 3 7
+w 4 7
+
+statement ok
+ALTER TABLE h RENAME TO hh
+
+query I nosort
+SELECT count(*) FROM hh
+----
+3
+
+statement error
+SELECT count(*) FROM h
+
+statement ok
+ALTER TABLE hh RENAME COLUMN c TO cc
+
+query I nosort
+SELECT sum(cc) FROM hh
+----
+21
+
+statement ok
+CREATE INDEX ihh ON hh(a)
+
+query TI nosort
+SELECT a, b FROM hh WHERE a = 'z'
+----
+z 3
+
+statement ok
+CREATE VIEW v AS SELECT a, b * 2 AS b2 FROM hh
+
+query TI nosort
+SELECT * FROM v ORDER BY a
+----
+w 8
+x 2
+z 6
+
+statement error
+INSERT INTO v VALUES ('q', 1)
+
+statement ok
+DROP VIEW v
+
+statement error
+SELECT * FROM v
+
+statement ok
+DROP INDEX ihh
+
+statement ok
+CREATE TABLE cp(a INTEGER, b INTEGER, PRIMARY KEY (a, b))
+
+statement ok
+INSERT INTO cp VALUES (1, 1), (1, 2), (2, 1)
+
+statement error UNIQUE
+INSERT INTO cp VALUES (1, 2)
+
+statement ok
+INSERT INTO cp VALUES (NULL, 1), (NULL, 1)
+
+query I nosort
+SELECT count(*) FROM cp
+----
+5
+
+statement ok
+CREATE TABLE u(a INTEGER, b INTEGER, UNIQUE (a, b))
+
+statement ok
+INSERT INTO u VALUES (1, NULL), (1, NULL), (1, 1)
+
+statement error UNIQUE
+INSERT INTO u VALUES (1, 1)
+
+statement ok
+CREATE TABLE ins AS SELECT a, b FROM u WHERE b IS NOT NULL
+
+query II nosort
+SELECT * FROM ins
+----
+1 1
+
+statement ok
+INSERT INTO ins SELECT a + 10, b FROM ins
+
+query II nosort
+SELECT * FROM ins ORDER BY a
+----
+1 1
+11 1
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO ins VALUES (99, 99)
+
+query I nosort
+SELECT count(*) FROM ins
+----
+3
+
+statement ok
+ROLLBACK
+
+query I nosort
+SELECT count(*) FROM ins
+----
+2
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO ins VALUES (5, 5)
+
+statement ok
+SAVEPOINT s1
+
+statement ok
+INSERT INTO ins VALUES (6, 6)
+
+statement ok
+ROLLBACK TO s1
+
+statement ok
+RELEASE s1
+
+statement ok
+COMMIT
+
+query I nosort
+SELECT a FROM ins ORDER BY a
+----
+1
+5
+11
+
+statement ok
+BEGIN
+
+statement error UNIQUE
+INSERT INTO u VALUES (7, 7), (1, 1)
+
+query I nosort
+SELECT count(*) FROM u
+----
+3
+
+statement ok
+COMMIT
+
+statement error
+COMMIT
+
+statement ok
+DROP TABLE IF EXISTS nope
+
+statement ok
+DROP TABLE cp
+
+statement error
+SELECT * FROM cp
+
+statement error
+CREATE TABLE u(a)
+
+statement ok
+CREATE TABLE IF NOT EXISTS u(a)
+
+statement ok
+DELETE FROM ins
+
+query I nosort
+SELECT count(*) FROM ins
+----
+0

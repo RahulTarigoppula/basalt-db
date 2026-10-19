@@ -26,7 +26,7 @@ export type LikeOp = "LIKE" | "GLOB" | "REGEXP" | "MATCH";
 
 export interface LiteralExpr { type: "literal"; value: Value; loc: SourceLocation }
 export interface ColumnExpr { type: "column"; schema?: string; table?: string; name: string; loc: SourceLocation }
-/** `?` (index undefined → positional), `?NNN`, `:name`/`@name`/`$name` (name includes the sigil). */
+/** `?` (index undefined -> positional), `?NNN`, `:name`/`@name`/`$name` (name includes the sigil). */
 export interface ParamExpr { type: "param"; index?: number; name?: string; loc: SourceLocation }
 export interface UnaryExpr { type: "unary"; op: UnaryOp; operand: Expr; loc: SourceLocation }
 export interface BinaryExpr { type: "binary"; op: BinaryOp; left: Expr; right: Expr; loc: SourceLocation }
@@ -53,7 +53,7 @@ export interface FunctionExpr {
   over?: WindowSpec | string;
   loc: SourceLocation;
 }
-/** `RAISE(IGNORE | ROLLBACK | ABORT | FAIL, message)` — parsed for completeness. */
+/** `RAISE(IGNORE | ROLLBACK | ABORT | FAIL, message)` - parsed for completeness. */
 export interface RaiseExpr { type: "raise"; action: "IGNORE" | "ROLLBACK" | "ABORT" | "FAIL"; message?: string; loc: SourceLocation }
 
 export type Expr =
@@ -143,7 +143,7 @@ export interface SelectStmt {
 export type ConflictAction = "ROLLBACK" | "ABORT" | "FAIL" | "IGNORE" | "REPLACE";
 
 export interface UpsertClause {
-  /** Conflict target columns (empty → any uniqueness conflict). */
+  /** Conflict target columns (empty -> any uniqueness conflict). */
   target: string[];
   targetWhere?: Expr;
   /** `DO NOTHING` when undefined. */
@@ -279,7 +279,7 @@ export interface AnalyzeStmt { type: "analyze"; target?: string; loc: SourceLoca
 export interface VacuumStmt { type: "vacuum"; loc: SourceLocation }
 export interface PragmaStmt {
   type: "pragma"; schema?: string; name: string;
-  /** `PRAGMA x = v` → value with `assign: true`; `PRAGMA x(v)` → value with `assign: false`. */
+  /** `PRAGMA x = v` -> value with `assign: true`; `PRAGMA x(v)` -> value with `assign: false`. */
   value?: Expr; assign: boolean;
   loc: SourceLocation;
 }

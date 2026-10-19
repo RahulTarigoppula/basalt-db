@@ -2,7 +2,7 @@
  * Bound tree: the output of semantic analysis (`binder.ts`). Every name is resolved, every expression typed.
  *
  * ## Row layout contract (shared with `exec/expr.ts`)
- * Expressions are evaluated against `rows: Row[]` — one `Row` per relation in scope. For a query scope with
+ * Expressions are evaluated against `rows: Row[]` - one `Row` per relation in scope. For a query scope with
  * relations `[r0, r1, ...]` (FROM order), `rows[i]` is the current row of relation `i`. The rows of *outer*
  * scopes (for correlated subqueries) are appended after the inner scope's rows, outermost last:
  * `rows = [...innerScopeRows, ...outerRows]`, where `outerRows` is exactly the `rows` array the outer expression
@@ -35,7 +35,7 @@ export interface FunctionInfo {
   deterministic: boolean;
 }
 
-/** Name → function metadata lookup (case-insensitive). */
+/** Name -> function metadata lookup (case-insensitive). */
 export interface FunctionProvider { lookup(name: string): FunctionInfo | undefined }
 
 // ───────────────────────────────── expressions ─────────────────────────────────
@@ -116,7 +116,7 @@ export interface BoundSubquery {
 export interface BoundOrderBy {
   expr: BoundExpr;
   desc: boolean;
-  /** Resolved NULLS placement (SQLite default: NULLs are smallest → first for ASC, last for DESC). */
+  /** Resolved NULLS placement (SQLite default: NULLs are smallest -> first for ASC, last for DESC). */
   nullsFirst: boolean;
   collation?: string;
   /** Set when the term refers to a result column (ordinal, alias) of the select. */

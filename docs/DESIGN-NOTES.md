@@ -11,9 +11,9 @@ catalog tree, the head of the free list, the logical page count and the txn id t
 it carries a CRC32.
 
 A write transaction never modifies a page that is reachable from the committed meta page. The first
-time it touches such a page it copies it to a fresh page id (`WriteTxn.allocate()` → free list or
+time it touches such a page it copies it to a fresh page id (`WriteTxn.allocate()` -> free list or
 file extension), modifies the copy, and the parent's child pointer is updated on the way back up the
-tree — which copies the parent too, and so on, until the root. The root id therefore changes on the
+tree - which copies the parent too, and so on, until the root. The root id therefore changes on the
 first write of every transaction, and the new root is an entirely private tree that shares all
 *untouched* subtrees with the committed one. Pages the transaction allocated itself are modified in
 place (`WriteTxn.owns(pageId)`), so a long transaction pays the copy only once per page.
@@ -27,7 +27,7 @@ log to replay and no undo to apply: recovery is "read a meta page".
 Rollback is equally cheap: drop the transaction's pages from the cache, return the page ids it
 allocated to the free list and un-free the pre-image pages it had marked free. Nothing on disk that
 matters was changed. The buffer pool may even have written dirty pages through to disk early (CLOCK
-eviction does this) — they live at page ids that no committed snapshot references, so they are
+eviction does this) - they live at page ids that no committed snapshot references, so they are
 invisible garbage until a meta page points at them.
 
 ### Trade-off versus WAL + undo/redo
@@ -57,7 +57,7 @@ Writers are serialised (`beginWrite()` throws if one is active; the engine queue
 Within a writer, **savepoints** are modelled as copy-on-write *epochs*: after `savepoint()`, pages the
 transaction allocated earlier count as not-owned again, so later writes copy them. `rollbackTo()` then
 only needs to drop the pages allocated since the savepoint, un-free the pages freed since, and restore
-the root — no page contents are ever snapshotted. `release()` merges the epoch back into its parent.
+the root - no page contents are ever snapshotted. `release()` merges the epoch back into its parent.
 
 ## 3. Free-list reclamation with live readers
 
@@ -89,19 +89,19 @@ scans without decoding. Each value is a tag byte plus payload:
 | `-1n` | `06 7f ff ff ff ff ff ff ff 00` | `0xFFFF…FF ^ 0x8000…00` |
 | `2.5` | `06 80 00 00 00 00 00 00 02 01 c0 04 00 00 00 00 00 00` | `floor = 2`, flag `01`, then the IEEE bits of 2.5 (`4004 0000 0000 0000`) with the sign bit set so all finite doubles order as unsigned bytes |
 | `-2.5` | `06 7f ff ff ff ff ff ff fd 01 3f fb ff ff ff ff ff ff` | `floor = -3`; negative doubles have all bits inverted |
-| `"a\0b"` | `09 61 00 ff 62 00 00` | tag `09`, bytes with `00 → 00 ff`, terminator `00 00` |
+| `"a\0b"` | `09 61 00 ff 62 00 00` | tag `09`, bytes with `00 -> 00 ff`, terminator `00 00` |
 | `[null, true]` | `01 02 01` | composite keys simply concatenate |
 
 Reading the table: `2n < 2.5 < 3n` holds because `2.5` shares the floor bucket of `2` and the flag
-byte `01` sorts after `00`, while `3n`'s bucket is larger. `5n` and `5.0` encode identically — exactly
-what `compareValues` demands — which is why `decodeKey` returns `5n` for both; exact types live in
+byte `01` sorts after `00`, while `3n`'s bucket is larger. `5n` and `5.0` encode identically - exactly
+what `compareValues` demands - which is why `decodeKey` returns `5n` for both; exact types live in
 the record format. Numbers outside the int64 range, `±Infinity` and `NaN` use neighbouring tags
 `03..08` so they still sort correctly against in-range values (`NaN` first, matching `compareValues`).
 Text is encoded per UTF-16 code unit (CESU-8), so the byte order equals JavaScript's string order.
 
 ### Record format
 
-`encodeRecord([42n, "hi", null, 2.5, true])` →
+`encodeRecord([42n, "hi", null, 2.5, true])` ->
 
 ```
 05                      5 columns
@@ -111,7 +111,7 @@ Text is encoded per UTF-16 code unit (CESU-8), so the byte order equals JavaScri
 40 04 00 00 00 00 00 00 2.5
 ```
 
-NULL and booleans occupy only their type code; integers use 1/2/4/8 bytes (`300n` → `04 01 2c`).
+NULL and booleans occupy only their type code; integers use 1/2/4/8 bytes (`300n` -> `04 01 2c`).
 
 ### Pages
 
@@ -123,7 +123,7 @@ offset  0  type u8        1  flags u8    2  cellCount u16  4  freeStart u16  6  
 ```
 
 Interior cell `[child u32][keyLen varint][key]`; leaf cell `[keyLen varint][valueLen varint][key][value]`,
-or `[…][key][overflowPage u32]` when the cell would exceed 1000 bytes — then the value lives in a
+or `[…][key][overflowPage u32]` when the cell would exceed 1000 bytes - then the value lives in a
 chain of OVERFLOW pages (4080 payload bytes each). A separator key in an interior page is the first
 key of the subtree to its right, so a lookup descends to the first child whose separator is greater
 than the search key. Leaves have no sibling pointers: under copy-on-write a copied leaf would leave

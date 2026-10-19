@@ -1,4 +1,4 @@
-// GENERATED from SQLite (node:sqlite) by scratchpad/gen-golden.ts — do not edit by hand.
+// GENERATED from SQLite (node:sqlite) by scratchpad/gen-golden.ts - do not edit by hand.
 // Each entry is [sql expression, expected value]; blobs are hex strings wrapped by blob().
 import type { Value } from "../../src/core/types.js";
 

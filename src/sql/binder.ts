@@ -20,7 +20,7 @@ import {
 
 /** Options for `bind`. */
 export interface BindOptions {
-  /** Original SQL text; used to derive result column names from expression source (`SELECT a+1` → "a+1"). */
+  /** Original SQL text; used to derive result column names from expression source (`SELECT a+1` -> "a+1"). */
   sql?: string;
 }
 
@@ -708,7 +708,7 @@ class Binder {
   private bindSubquery(sel: A.SelectStmt, ctx: ExprCtx): BoundSubquery {
     const select = this.bindSelect(sel, ctx.scope, ctx.scope.ctes);
     // Correlated refs were recorded on the subquery's own scope(s) during resolution (and, with adjusted depth,
-    // on every scope they pass through — including ctx.scope — by `recordOuterRef`).
+    // on every scope they pass through - including ctx.scope - by `recordOuterRef`).
     const outerRefs: BoundColumnRef[] = [];
     collectOuterRefs(select.body, outerRefs);
     return { select, outerRefs, correlated: outerRefs.length > 0 };
@@ -818,7 +818,7 @@ class Binder {
       if (!aggregateFits) throw err(`wrong number of arguments to function ${e.name}()`, e.loc);
       if (!ctx.allowAggregates || !ctx.core) throw err(`misuse of aggregate function ${e.name}()`, e.loc);
       if (ctx.inAggregate) throw err(`misuse of aggregate function ${e.name}()`, e.loc);
-      if (ctx.inWindow) throw err(`misuse of aggregate function ${e.name}() inside a window function`, e.loc);
+      // aggregates inside window arguments / specs are allowed: the window runs over the aggregated rows (SQLite)
       if (e.distinct && argc !== 1) throw err("DISTINCT aggregates must have exactly one argument", e.loc);
       const inner: ExprCtx = { ...ctx, inAggregate: true, allowWindows: false, aliasMode: undefined };
       const args = e.args.map((a) => this.bindExpr(a, inner));
@@ -981,7 +981,10 @@ class Binder {
       const target = u.target.map((c) => this.columnIndex(table, c, u.loc));
       const upScope = new Scope(undefined, map);
       upScope.relations.push(this.tableRelation(table, alias));
-      upScope.relations.push(this.tableRelation(table, "excluded"));
+      // unqualified names in DO UPDATE resolve to the target row; `excluded.col` must be qualified (SQLite)
+      const excluded = this.tableRelation(table, "excluded");
+      for (const c of excluded.columns) c.hidden = true;
+      upScope.relations.push(excluded);
       const uctx = this.ctx(upScope, "set");
       upsert = { target };
       if (u.targetWhere) upsert.targetWhere = this.bindExpr(u.targetWhere, this.ctx(returnScope, "where"));

@@ -95,7 +95,7 @@ describe("binder: column resolution", () => {
 
   it("resolves rowid aliases", () => {
     const c = core("SELECT rowid, _rowid_, oid FROM users");
-    // users has INTEGER PRIMARY KEY → rowid is column 0
+    // users has INTEGER PRIMARY KEY -> rowid is column 0
     expect(colRef(c.projections[0]!.expr).column).toBe(0);
     const c2 = core("SELECT rowid FROM orders");
     expect(c2.projections[0]!.expr.kind).toBe("rowid");
@@ -135,7 +135,7 @@ describe("binder: joins", () => {
     expect(j.using[0]).toMatchObject({ name: "a", left: { relation: 0, column: 0 }, right: { relation: 1, column: 0 } });
     expect(j.condition).toMatchObject({ kind: "binary", op: "=" });
     expect(c.relations[1]!.columns[0]!.hidden).toBe(true);
-    // bare `a` → left side; qualified t2.a still works
+    // bare `a` -> left side; qualified t2.a still works
     const c2 = core("SELECT a, t2.a FROM t1 JOIN t2 USING (a)");
     expect(colRef(c2.projections[0]!.expr)).toMatchObject({ relation: 0, column: 0 });
     expect(colRef(c2.projections[1]!.expr)).toMatchObject({ relation: 1, column: 0 });

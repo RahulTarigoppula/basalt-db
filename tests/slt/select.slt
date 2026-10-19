@@ -1,0 +1,350 @@
+# Basic SELECT: projection, WHERE, ORDER BY, LIMIT/OFFSET, DISTINCT, expressions, NULL handling, compound selects.
+
+statement ok
+CREATE TABLE t1(a INTEGER, b TEXT, c REAL)
+
+statement ok
+INSERT INTO t1 VALUES (1, 'one', 1.5), (2, 'two', 2.5), (3, 'three', NULL), (NULL, 'null', 4.5), (5, NULL, 5.5), (2, 'two', 2.5)
+
+query ITR nosort
+SELECT a, b, c FROM t1 ORDER BY a, b, c
+----
+NULL null 4.5
+1 one 1.5
+2 two 2.5
+2 two 2.5
+3 three NULL
+5 NULL 5.5
+
+query I rowsort
+SELECT a FROM t1 WHERE a > 1
+----
+2
+2
+3
+5
+
+query I rowsort
+SELECT a FROM t1 WHERE a IS NULL OR a = 5
+----
+5
+NULL
+
+query IT nosort
+SELECT DISTINCT a, b FROM t1 ORDER BY a NULLS LAST, b
+----
+1 one
+2 two
+3 three
+5 NULL
+NULL null
+
+query I nosort
+SELECT a FROM t1 ORDER BY a DESC NULLS LAST LIMIT 3
+----
+5
+3
+2
+
+query I nosort
+SELECT a FROM t1 WHERE a IS NOT NULL ORDER BY a LIMIT 2 OFFSET 2
+----
+2
+3
+
+query T nosort
+SELECT b FROM t1 WHERE b LIKE 't%' ORDER BY b
+----
+three
+two
+two
+
+query I nosort
+SELECT count(*) FROM t1 WHERE b GLOB 't*'
+----
+3
+
+query ITI nosort
+SELECT a, b, a IN (1, 2) FROM t1 ORDER BY a NULLS FIRST, b
+----
+NULL null NULL
+1 one 1
+2 two 1
+2 two 1
+3 three 0
+5 NULL 0
+
+query IT nosort
+SELECT a, CASE WHEN a < 2 THEN 'small' WHEN a < 4 THEN 'mid' ELSE 'big' END FROM t1 WHERE a IS NOT NULL ORDER BY a, b
+----
+1 small
+2 mid
+2 mid
+3 mid
+5 big
+
+query IT nosort
+SELECT a, CASE a WHEN 1 THEN 'x' WHEN 2 THEN 'y' END FROM t1 WHERE a IS NOT NULL ORDER BY a, b
+----
+1 x
+2 y
+2 y
+3 NULL
+5 NULL
+
+query R nosort
+SELECT c * 2 FROM t1 WHERE c IS NOT NULL ORDER BY c
+----
+3.0
+5.0
+5.0
+9.0
+11.0
+
+query I nosort
+SELECT a + 1 FROM t1 WHERE a BETWEEN 2 AND 3 ORDER BY a
+----
+3
+3
+4
+
+query T nosort
+SELECT b || '-' || CAST(a AS TEXT) FROM t1 WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY a, b
+----
+one-1
+two-2
+two-2
+three-3
+
+query I nosort
+SELECT coalesce(a, -1) FROM t1 ORDER BY coalesce(a, -1)
+----
+-1
+1
+2
+2
+3
+5
+
+query I nosort
+SELECT nullif(a, 2) FROM t1 WHERE a IS NOT NULL ORDER BY a
+----
+1
+NULL
+NULL
+3
+5
+
+query I nosort
+SELECT ifnull(a, 0) FROM t1 ORDER BY 1
+----
+0
+1
+2
+2
+3
+5
+
+query I nosort
+SELECT iif(a > 2, 1, 0) FROM t1 WHERE a IS NOT NULL ORDER BY a
+----
+0
+0
+0
+1
+1
+
+query T nosort
+SELECT typeof(a) FROM t1 ORDER BY a NULLS FIRST, b
+----
+null
+integer
+integer
+integer
+integer
+integer
+
+query I nosort
+SELECT 1 WHERE 0
+----
+
+query I nosort
+SELECT 1 WHERE NULL
+----
+
+query II nosort
+SELECT 1 + 1, 7 / 2
+----
+2 3
+
+query R nosort
+SELECT 7.0 / 2
+----
+3.5
+
+query I nosort
+SELECT 7 % 3
+----
+1
+
+query T nosort
+SELECT 'a' || NULL IS NULL
+----
+1
+
+query I nosort
+SELECT 1 / 0 IS NULL
+----
+1
+
+query I nosort
+SELECT abs(-5)
+----
+5
+
+query IIT nosort
+SELECT length('hello'), instr('hello', 'l'), upper('abc')
+----
+5 3 ABC
+
+query TT nosort
+SELECT substr('hello', 2, 3), replace('hello', 'l', 'L')
+----
+ell heLLo
+
+query TT nosort
+SELECT trim('  x  '), ltrim('  x')
+----
+x x
+
+query IIR nosort
+SELECT min(3, 1, 2), max(3, 1, 2), round(2.567, 2)
+----
+1 3 2.57
+
+query T nosort
+SELECT printf('%05.2f|%d|%s', 3.14159, 42, 'x')
+----
+03.14|42|x
+
+query I nosort
+SELECT 1 UNION SELECT 2 UNION SELECT 1 ORDER BY 1
+----
+1
+2
+
+query I nosort
+SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 1 ORDER BY 1
+----
+1
+1
+2
+
+query I nosort
+SELECT a FROM t1 WHERE a IS NOT NULL INTERSECT SELECT 2 UNION SELECT 3 ORDER BY 1
+----
+2
+3
+
+query I nosort
+SELECT a FROM t1 WHERE a IS NOT NULL EXCEPT SELECT 2 ORDER BY 1 DESC
+----
+5
+3
+1
+
+query I nosort
+SELECT column1 FROM (VALUES (3), (1), (2)) ORDER BY 1
+----
+1
+2
+3
+
+query II nosort
+SELECT * FROM (SELECT a, count(*) AS n FROM t1 GROUP BY a) WHERE n > 1
+----
+2 2
+
+query I nosort
+SELECT a FROM t1 WHERE a = (SELECT max(a) FROM t1)
+----
+5
+
+query I nosort
+SELECT count(*) FROM t1 WHERE EXISTS (SELECT 1 FROM t1 t2 WHERE t2.a = t1.a + 1)
+----
+3
+
+query I nosort
+SELECT a FROM t1 WHERE a NOT IN (SELECT a FROM t1 WHERE a > 2) ORDER BY a
+----
+1
+2
+2
+
+query I nosort
+SELECT a FROM t1 WHERE a NOT IN (SELECT a FROM t1) ORDER BY a
+----
+
+query I nosort
+SELECT (SELECT count(*) FROM t1 t2 WHERE t2.a < t1.a) FROM t1 WHERE a IS NOT NULL ORDER BY a, b
+----
+0
+1
+1
+3
+4
+
+query IIII nosort
+SELECT 1 = 1, 1 < 2, 2 <= 1, 'a' < 'b'
+----
+1 1 0 1
+
+query IIII nosort
+SELECT 1 AND 0, 1 OR NULL, NOT NULL IS NULL, NULL = NULL IS NULL
+----
+0 1 0 1
+
+query II nosort
+SELECT 1 IS NOT DISTINCT FROM NULL, NULL IS DISTINCT FROM NULL
+----
+0 0
+
+query I nosort
+SELECT 5 & 3 | 8
+----
+9
+
+query I nosort
+SELECT 1 << 4 >> 2
+----
+4
+
+query I nosort
+SELECT -(-3)
+----
+3
+
+query T nosort
+SELECT CAST(3.7 AS INTEGER) || ':' || CAST('12abc' AS INTEGER) || ':' || CAST(1 AS TEXT)
+----
+3:12:1
+
+query R nosort
+SELECT CAST('2.5' AS REAL)
+----
+2.5
+
+query I nosort
+SELECT count(*) FROM t1 WHERE b = 'two' AND c = 2.5 AND a = 2
+----
+2
+
+statement error
+SELECT nope FROM t1
+
+statement error
+SELECT * FROM nope
+
+statement error
+SELECT 1 +

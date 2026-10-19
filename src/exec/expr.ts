@@ -1,7 +1,7 @@
 /**
  * Expression compiler: turns bound expressions into closures `(rows, ctx) => Value` once per plan, so no AST is
- * walked per row. Implements SQLite's three-valued logic, numeric promotion (INTEGER op INTEGER → bigint, overflow →
- * REAL, division by zero → NULL), `||`, comparisons via `compareValues`, LIKE/GLOB, BETWEEN, CASE, CAST, IN.
+ * walked per row. Implements SQLite's three-valued logic, numeric promotion (INTEGER op INTEGER -> bigint, overflow ->
+ * REAL, division by zero -> NULL), `||`, comparisons via `compareValues`, LIKE/GLOB, BETWEEN, CASE, CAST, IN.
  *
  * Row layout: `rows[i]` is the current row of relation `i` in the expression's scope; outer-scope rows follow
  * (see `sql/bound.ts`). Subqueries are delegated to `EvalContext.evalSubquery`.
@@ -88,7 +88,7 @@ export function sqlMul(a: Value, b: Value): Value {
   return Number(x) * Number(y);
 }
 
-/** `a / b`: integer division truncates toward zero; division by zero → NULL. */
+/** `a / b`: integer division truncates toward zero; division by zero -> NULL. */
 export function sqlDiv(a: Value, b: Value): Value {
   if (a === null || b === null) return null;
   const x = toNumeric(a), y = toNumeric(b);
@@ -102,7 +102,7 @@ export function sqlDiv(a: Value, b: Value): Value {
   return Number(x) / d;
 }
 
-/** `a % b`: both operands are converted to integers; modulo by zero → NULL; REAL operand → REAL result. */
+/** `a % b`: both operands are converted to integers; modulo by zero -> NULL; REAL operand -> REAL result. */
 export function sqlMod(a: Value, b: Value): Value {
   if (a === null || b === null) return null;
   const x = toNumeric(a), y = toNumeric(b);
@@ -188,7 +188,7 @@ export function compileExpr(expr: BoundExpr, options: CompileOptions = {}): Comp
   return new Compiler(options).compile(expr);
 }
 
-/** Compile an expression used as a predicate: returns true only when the SQL value is TRUE (NULL → false). */
+/** Compile an expression used as a predicate: returns true only when the SQL value is TRUE (NULL -> false). */
 export function compilePredicate(expr: BoundExpr, options: CompileOptions = {}): (rows: Row[], ctx: EvalContext) => boolean {
   const f = compileExpr(expr, options);
   return (rows, ctx) => truthy(f(rows, ctx)) === true;

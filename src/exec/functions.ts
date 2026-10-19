@@ -95,7 +95,7 @@ export function parseNumericPrefix(s: string): { value: bigint | number; end: nu
   return { value: Number(text), end };
 }
 
-/** Numeric value for arithmetic (SQLite semantics): text uses its numeric prefix, non-numeric text/blob → 0. */
+/** Numeric value for arithmetic (SQLite semantics): text uses its numeric prefix, non-numeric text/blob -> 0. */
 export function toNumeric(v: Value): bigint | number {
   switch (typeof v) {
     case "bigint": case "number": return v;
@@ -123,7 +123,7 @@ export function toNumericStrict(v: Value): bigint | number | null {
   }
 }
 
-/** Truncates a double toward zero and clamps into int64 (NaN → 0). */
+/** Truncates a double toward zero and clamps into int64 (NaN -> 0). */
 export function doubleToInt64(n: number): bigint {
   if (Number.isNaN(n)) return 0n;
   if (n >= TWO63) return INT64_MAX;
@@ -143,7 +143,7 @@ export function toDouble(v: Value): number {
   return typeof n === "bigint" ? Number(n) : n;
 }
 
-/** SQL truth value: NULL → null, numbers ≠ 0 → true, text/blob via numeric prefix. */
+/** SQL truth value: NULL -> null, numbers ≠ 0 -> true, text/blob via numeric prefix. */
 export function truthy(v: Value): boolean | null {
   if (v === null) return null;
   switch (typeof v) {
@@ -330,7 +330,7 @@ function padTo(s: string, width: number, left: boolean, zero: boolean): string {
  * Decimal digits of a finite non-negative double the way SQLite's `sqlite3FpDecode` extracts them: the exact
  * expansion truncated to the 18 or 19 significant digits that fit a u64 after scaling into [2^63/10, 2^63).
  * `digits[0]` is the digit at 10^exp. Callers then round half-up at the requested position (≤ 16 significant
- * digits, or 26 with the `!` flag — which never exceeds what was extracted).
+ * digits, or 26 with the `!` flag - which never exceeds what was extracted).
  */
 function decodeDouble(v: number): { digits: string; exp: number } {
   if (v === 0) return { digits: "0", exp: 0 };
@@ -527,7 +527,7 @@ export function sqlPrintf(format: string, args: readonly Value[]): string {
       }
       case "c": {
         const a = nextArg();
-        // SQLite's %c takes the first character of the argument's text form (so 65 → "6", not "A")
+        // SQLite's %c takes the first character of the argument's text form (so 65 -> "6", not "A")
         s = a === null ? "" : [...toText(a)].slice(0, 1).join("");
         s = padTo(s, width, left, false);
         break;

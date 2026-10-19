@@ -1,0 +1,246 @@
+# Joins: inner, left, right, full, cross, natural, USING, self joins, non-equi, NULL keys, multi-way.
+
+statement ok
+CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT, dept INTEGER, boss INTEGER)
+
+statement ok
+CREATE TABLE dept(id INTEGER PRIMARY KEY, dname TEXT)
+
+statement ok
+INSERT INTO dept VALUES (1, 'eng'), (2, 'ops'), (3, 'empty')
+
+statement ok
+INSERT INTO emp VALUES (10, 'ann', 1, NULL), (11, 'bob', 1, 10), (12, 'cid', 2, 10), (13, 'dee', NULL, 11), (14, 'eve', 9, 12)
+
+query TT rowsort
+SELECT e.name, d.dname FROM emp e JOIN dept d ON e.dept = d.id
+----
+ann eng
+bob eng
+cid ops
+
+query TT rowsort
+SELECT e.name, d.dname FROM emp e INNER JOIN dept d ON d.id = e.dept WHERE d.dname = 'eng'
+----
+ann eng
+bob eng
+
+query TT rowsort
+SELECT e.name, d.dname FROM emp e LEFT JOIN dept d ON e.dept = d.id
+----
+ann eng
+bob eng
+cid ops
+dee NULL
+eve NULL
+
+query TT rowsort
+SELECT e.name, d.dname FROM emp e LEFT JOIN dept d ON e.dept = d.id WHERE d.id IS NULL
+----
+dee NULL
+eve NULL
+
+query TT rowsort
+SELECT e.name, d.dname FROM dept d LEFT JOIN emp e ON e.dept = d.id
+----
+NULL empty
+ann eng
+bob eng
+cid ops
+
+query TT rowsort
+SELECT e.name, d.dname FROM emp e RIGHT JOIN dept d ON e.dept = d.id
+----
+NULL empty
+ann eng
+bob eng
+cid ops
+
+query TT rowsort
+SELECT e.name, d.dname FROM emp e FULL OUTER JOIN dept d ON e.dept = d.id
+----
+NULL empty
+ann eng
+bob eng
+cid ops
+dee NULL
+eve NULL
+
+query I nosort
+SELECT count(*) FROM emp CROSS JOIN dept
+----
+15
+
+query I nosort
+SELECT count(*) FROM emp, dept WHERE emp.dept = dept.id
+----
+3
+
+query TT rowsort
+SELECT a.name, b.name FROM emp a JOIN emp b ON a.boss = b.id
+----
+bob ann
+cid ann
+dee bob
+eve cid
+
+query TT rowsort
+SELECT a.name, b.name FROM emp a LEFT JOIN emp b ON a.boss = b.id
+----
+ann NULL
+bob ann
+cid ann
+dee bob
+eve cid
+
+query TT rowsort
+SELECT a.name, b.name FROM emp a JOIN emp b ON a.id < b.id AND a.dept = b.dept
+----
+ann bob
+
+query I rowsort
+SELECT count(*) FROM emp a JOIN emp b ON a.dept = b.dept
+----
+6
+
+query TTT rowsort
+SELECT e.name, d.dname, b.name FROM emp e JOIN dept d ON e.dept = d.id LEFT JOIN emp b ON e.boss = b.id
+----
+ann eng NULL
+bob eng ann
+cid ops ann
+
+query TTT rowsort
+SELECT e.name, b.name, d.dname FROM emp e LEFT JOIN emp b ON e.boss = b.id LEFT JOIN dept d ON b.dept = d.id
+----
+ann NULL NULL
+bob ann eng
+cid ann eng
+dee bob eng
+eve cid ops
+
+statement ok
+CREATE TABLE x(k INTEGER, v TEXT)
+
+statement ok
+CREATE TABLE y(k INTEGER, w TEXT)
+
+statement ok
+INSERT INTO x VALUES (1, 'a'), (2, 'b'), (NULL, 'c'), (3, 'd')
+
+statement ok
+INSERT INTO y VALUES (1, 'p'), (NULL, 'q'), (3, 'r'), (3, 's')
+
+query ITT rowsort
+SELECT k, v, w FROM x JOIN y USING (k)
+----
+1 a p
+3 d r
+3 d s
+
+query ITT rowsort
+SELECT * FROM x NATURAL JOIN y
+----
+1 a p
+3 d r
+3 d s
+
+query ITT rowsort
+SELECT x.k, v, w FROM x LEFT JOIN y ON x.k = y.k
+----
+1 a p
+2 b NULL
+3 d r
+3 d s
+NULL c NULL
+
+query IITT rowsort
+SELECT x.k, y.k, v, w FROM x FULL JOIN y ON x.k = y.k
+----
+1 1 a p
+2 NULL b NULL
+3 3 d r
+3 3 d s
+NULL NULL NULL q
+NULL NULL c NULL
+
+query I rowsort
+SELECT count(*) FROM x JOIN y ON x.k IS y.k
+----
+4
+
+query TT rowsort
+SELECT v, w FROM x JOIN y ON x.k < y.k
+----
+a r
+a s
+b r
+b s
+
+query TT rowsort
+SELECT v, w FROM x LEFT JOIN y ON x.k = y.k AND w = 'r'
+----
+a NULL
+b NULL
+c NULL
+d r
+
+query TT rowsort
+SELECT v, w FROM x LEFT JOIN y ON x.k = y.k WHERE w = 'r'
+----
+d r
+
+query I rowsort
+SELECT count(*) FROM x a, x b, x c
+----
+64
+
+query TTT rowsort
+SELECT a.v, b.v, c.v FROM x a JOIN x b ON a.k = b.k - 1 JOIN x c ON b.k = c.k - 1
+----
+a b d
+
+query T rowsort
+SELECT v FROM x WHERE k IN (SELECT k FROM y)
+----
+a
+d
+
+query T rowsort
+SELECT v FROM x WHERE EXISTS (SELECT 1 FROM y WHERE y.k = x.k AND w <> 'p')
+----
+d
+
+query T rowsort
+SELECT v FROM x WHERE NOT EXISTS (SELECT 1 FROM y WHERE y.k = x.k)
+----
+b
+c
+
+query TI rowsort
+SELECT v, (SELECT count(*) FROM y WHERE y.k = x.k) FROM x
+----
+a 1
+b 0
+c 0
+d 2
+
+query TT rowsort
+SELECT v, w FROM x JOIN (SELECT k, w FROM y WHERE w > 'q') z ON x.k = z.k
+----
+d r
+d s
+
+query TT rowsort
+SELECT x.v, y.w FROM x LEFT JOIN y ON 0
+----
+a NULL
+b NULL
+c NULL
+d NULL
+
+statement error
+SELECT * FROM x JOIN y ON x.nope = y.k
+
+statement error
+SELECT k FROM x, y

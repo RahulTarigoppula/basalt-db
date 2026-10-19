@@ -1,0 +1,211 @@
+# Aggregates: COUNT/SUM/TOTAL/AVG/MIN/MAX/GROUP_CONCAT, DISTINCT, FILTER, GROUP BY with NULLs, HAVING, empty input.
+
+statement ok
+CREATE TABLE s(g TEXT, k INTEGER, v REAL, n INTEGER)
+
+statement ok
+INSERT INTO s VALUES ('a', 1, 1.5, 10), ('a', 2, 2.5, NULL), ('b', 1, 3.0, 30), ('b', NULL, NULL, 40), (NULL, 3, 4.5, 50), (NULL, 3, 5.5, NULL), ('c', 7, 7.25, 70)
+
+query IIRIIR nosort
+SELECT count(*), count(v), sum(n), min(k), max(k), avg(v) FROM s
+----
+7 6 200.0 1 7 4.04166666666667
+
+query TIIR nosort
+SELECT g, count(*), count(k), sum(v) FROM s GROUP BY g ORDER BY g NULLS FIRST
+----
+NULL 2 2 10.0
+a 2 2 4.0
+b 2 1 3.0
+c 1 1 7.25
+
+query TI nosort
+SELECT g, count(*) FROM s GROUP BY g HAVING count(*) > 1 ORDER BY g NULLS FIRST
+----
+NULL 2
+a 2
+b 2
+
+query TI nosort
+SELECT g, sum(n) FROM s GROUP BY g HAVING sum(n) IS NULL OR sum(n) > 50 ORDER BY g NULLS FIRST
+----
+b 70
+c 70
+
+query II nosort
+SELECT k, count(*) FROM s GROUP BY k ORDER BY k NULLS FIRST
+----
+NULL 1
+1 2
+2 1
+3 2
+7 1
+
+query TII nosort
+SELECT g, k, count(*) FROM s GROUP BY g, k ORDER BY g NULLS FIRST, k NULLS FIRST
+----
+NULL 3 2
+a 1 1
+a 2 1
+b NULL 1
+b 1 1
+c 7 1
+
+query II nosort
+SELECT count(DISTINCT k), count(DISTINCT g) FROM s
+----
+4 3
+
+query I nosort
+SELECT sum(DISTINCT k) FROM s
+----
+13
+
+query T nosort
+SELECT group_concat(k) FROM s WHERE g = 'a'
+----
+1,2
+
+query T nosort
+SELECT group_concat(g, '|') FROM (SELECT g FROM s WHERE g IS NOT NULL ORDER BY g)
+----
+a|a|b|b|c
+
+query TT nosort
+SELECT g, group_concat(k) FROM s WHERE g IS NOT NULL GROUP BY g ORDER BY g
+----
+a 1,2
+b 1
+c 7
+
+query II nosort
+SELECT count(*) FILTER (WHERE k > 1), sum(n) FILTER (WHERE g = 'b') FROM s
+----
+4 70
+
+query IR nosort
+SELECT count(*), total(v) FROM s WHERE g = 'zzz'
+----
+0 0.0
+
+query I nosort
+SELECT sum(n) FROM s WHERE g = 'zzz'
+----
+NULL
+
+query R nosort
+SELECT avg(n) FROM s WHERE g = 'zzz'
+----
+NULL
+
+query I nosort
+SELECT max(k) FROM s WHERE k IS NULL
+----
+NULL
+
+query TI nosort
+SELECT g, count(*) FROM s WHERE g = 'zzz' GROUP BY g
+----
+
+query RR nosort
+SELECT min(v), max(v) FROM s
+----
+1.5 7.25
+
+query TT nosort
+SELECT min(g), max(g) FROM s
+----
+a c
+
+query I nosort
+SELECT count(*) FROM s GROUP BY g HAVING min(k) = 1 ORDER BY 1
+----
+2
+2
+
+query TI nosort
+SELECT g, k + 1 FROM s GROUP BY g, k + 1 ORDER BY 1 NULLS FIRST, 2 NULLS FIRST
+----
+NULL 4
+a 2
+a 3
+b NULL
+b 2
+c 8
+
+query II nosort
+SELECT k * 2, count(*) FROM s GROUP BY k * 2 ORDER BY 1 NULLS FIRST
+----
+NULL 1
+2 2
+4 1
+6 2
+14 1
+
+query I nosort
+SELECT count(*) FROM (SELECT g FROM s GROUP BY g)
+----
+4
+
+query TR nosort
+SELECT g, avg(v) FROM s GROUP BY g ORDER BY avg(v) DESC NULLS LAST
+----
+c 7.25
+NULL 5.0
+b 3.0
+a 2.0
+
+query TI nosort
+SELECT g, count(*) AS c FROM s GROUP BY g ORDER BY c DESC, g NULLS FIRST
+----
+NULL 2
+a 2
+b 2
+c 1
+
+query I nosort
+SELECT count(*) FROM s WHERE k IN (SELECT k FROM s GROUP BY k HAVING count(*) > 1)
+----
+4
+
+query TI nosort
+SELECT g, (SELECT max(k) FROM s s2 WHERE s2.g = s.g) FROM s GROUP BY g ORDER BY g NULLS FIRST
+----
+NULL NULL
+a 2
+b 1
+c 7
+
+query IR nosort
+SELECT sum(k), sum(v) FROM s
+----
+17 24.25
+
+query I nosort
+SELECT sum(k) + 0 FROM s
+----
+17
+
+query R nosort
+SELECT sum(k) * 1.0 FROM s
+----
+17.0
+
+query I nosort
+SELECT count(*) FROM s WHERE v > (SELECT avg(v) FROM s)
+----
+3
+
+query TI nosort
+SELECT g, n FROM s GROUP BY g ORDER BY g NULLS FIRST
+----
+NULL 50
+a 10
+b 30
+c 70
+
+statement error
+SELECT count(*) FROM s HAVING 1 = 1 WHERE 1
+
+statement error
+SELECT sum(sum(k)) FROM s

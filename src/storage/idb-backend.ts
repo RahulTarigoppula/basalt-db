@@ -7,7 +7,7 @@
  *
  * **Durability caveat.** A commit is durable only once the scheduled flush has completed. If the
  * page is closed or crashes between `syncSync()` and the flush finishing, the last commit(s) may be
- * lost — but the on-disk image is still *consistent*: a flush writes data pages and meta pages in
+ * lost - but the on-disk image is still *consistent*: a flush writes data pages and meta pages in
  * one IDB transaction, and IDB transactions are atomic, so a reopen sees either the old or the new
  * commit, never a torn one. Call `await backend.close()` (or `await backend.flushed()`) to wait for
  * durability. Prefer `OpfsBackend` whenever it is available.

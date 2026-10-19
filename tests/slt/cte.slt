@@ -1,0 +1,163 @@
+# Common table expressions: plain, chained, referenced twice, recursive (series, fibonacci, hierarchy), with ORDER BY/LIMIT.
+
+statement ok
+CREATE TABLE tree(id INTEGER PRIMARY KEY, parent INTEGER, name TEXT)
+
+statement ok
+INSERT INTO tree VALUES (1, NULL, 'root'), (2, 1, 'a'), (3, 1, 'b'), (4, 2, 'a1'), (5, 2, 'a2'), (6, 4, 'a1x'), (7, 3, 'b1')
+
+query I nosort
+WITH c AS (SELECT id FROM tree WHERE parent = 1) SELECT id FROM c ORDER BY id
+----
+2
+3
+
+query I nosort
+WITH c1 AS (SELECT id, parent FROM tree), c2 AS (SELECT c1.id FROM c1 JOIN tree ON c1.parent = tree.id WHERE tree.name = 'a') SELECT id FROM c2 ORDER BY id
+----
+4
+5
+
+query II nosort
+WITH c AS (SELECT id FROM tree WHERE id < 4) SELECT x.id, y.id FROM c x JOIN c y ON x.id < y.id ORDER BY 1, 2
+----
+1 2
+1 3
+2 3
+
+query I nosort
+WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 10) SELECT x FROM n
+----
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+
+query I nosort
+WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 100) SELECT sum(x) FROM n
+----
+5050
+
+query II nosort
+WITH RECURSIVE fib(n, a, b) AS (SELECT 1, 0, 1 UNION ALL SELECT n + 1, b, a + b FROM fib WHERE n < 15) SELECT n, a FROM fib ORDER BY n
+----
+1 0
+2 1
+3 1
+4 2
+5 3
+6 5
+7 8
+8 13
+9 21
+10 34
+11 55
+12 89
+13 144
+14 233
+15 377
+
+query ITI nosort
+WITH RECURSIVE walk(id, name, depth) AS (SELECT id, name, 0 FROM tree WHERE parent IS NULL UNION ALL SELECT t.id, t.name, w.depth + 1 FROM tree t JOIN walk w ON t.parent = w.id) SELECT id, name, depth FROM walk ORDER BY id
+----
+1 root 0
+2 a 1
+3 b 1
+4 a1 2
+5 a2 2
+6 a1x 3
+7 b1 2
+
+query T nosort
+WITH RECURSIVE path(id, p) AS (SELECT id, name FROM tree WHERE parent IS NULL UNION ALL SELECT t.id, path.p || '/' || t.name FROM tree t JOIN path ON t.parent = path.id) SELECT p FROM path ORDER BY p
+----
+root
+root/a
+root/a/a1
+root/a/a1/a1x
+root/a/a2
+root/b
+root/b/b1
+
+query I nosort
+WITH RECURSIVE up(id) AS (SELECT 6 UNION ALL SELECT parent FROM tree, up WHERE tree.id = up.id AND parent IS NOT NULL) SELECT id FROM up
+----
+6
+4
+2
+1
+
+query I nosort
+WITH RECURSIVE n(x) AS (SELECT 1 UNION SELECT (x * 2) % 7 FROM n) SELECT x FROM n ORDER BY x
+----
+1
+2
+4
+
+query I nosort
+WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 1000) SELECT count(*) FROM n
+----
+1000
+
+query I nosort
+WITH RECURSIVE n(x) AS (SELECT 5 UNION ALL SELECT x - 1 FROM n WHERE x > 1 ORDER BY 1 LIMIT 3) SELECT x FROM n
+----
+5
+4
+3
+
+query I nosort
+WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n LIMIT 5) SELECT x FROM n
+----
+1
+2
+3
+4
+5
+
+query II nosort
+WITH RECURSIVE a(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM a WHERE x < 3), b(y) AS (SELECT x * 10 FROM a) SELECT x, y FROM a JOIN b ON a.x * 10 = b.y ORDER BY x
+----
+1 10
+2 20
+3 30
+
+query I nosort
+SELECT count(*) FROM (WITH c AS (SELECT id FROM tree WHERE id > 3) SELECT * FROM c)
+----
+4
+
+query I nosort
+WITH c(v) AS (VALUES (3), (1), (2)) SELECT v FROM c ORDER BY v
+----
+1
+2
+3
+
+query I nosort
+WITH c AS (SELECT 1 AS v UNION ALL SELECT 2) SELECT sum(v) FROM c
+----
+3
+
+statement ok
+CREATE TABLE cnt(n INTEGER)
+
+statement ok
+WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 5) INSERT INTO cnt SELECT x FROM n
+
+query I nosort
+SELECT sum(n) FROM cnt
+----
+15
+
+statement error
+WITH c AS (SELECT 1) SELECT * FROM nope
+
+statement error
+WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n, n) SELECT x FROM n

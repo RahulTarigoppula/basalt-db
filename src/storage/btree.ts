@@ -9,7 +9,7 @@
  * Copy-on-write: a write never modifies a page it does not own. `WriteContext.owns(pageId)` says
  * whether the page was allocated by the current transaction (or savepoint epoch); otherwise the page
  * is copied to a fresh page, the old id is freed (tagged with the transaction so no live snapshot loses
- * it), and the parent's child pointer is updated on the way back up — all the way to the root, so the
+ * it), and the parent's child pointer is updated on the way back up - all the way to the root, so the
  * root id changes on the first write of every transaction. The owner reads `tree.root` back after
  * each write.
  *

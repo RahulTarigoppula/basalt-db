@@ -1,7 +1,7 @@
 /**
  * Recursive-descent SQL parser with a Pratt-style expression parser using SQLite's precedence table.
  *
- * Precedence (lowest → highest): OR < AND < NOT (prefix) < [= == != <> IS IN LIKE GLOB MATCH REGEXP BETWEEN ISNULL NOTNULL]
+ * Precedence (lowest -> highest): OR < AND < NOT (prefix) < [= == != <> IS IN LIKE GLOB MATCH REGEXP BETWEEN ISNULL NOTNULL]
  * < [< <= > >=] < [& | << >>] < [+ -] < [* / %] < || < unary [- + ~] < COLLATE.
  */
 import { SyntaxError_ } from "../core/errors.js";
@@ -54,7 +54,7 @@ class Parser {
     this.pos++;
     return t.value as string;
   }
-  /** `[schema.]name` — returns name, discarding an optional schema qualifier. */
+  /** `[schema.]name` - returns name, discarding an optional schema qualifier. */
   private expectQualifiedName(what = "name"): { schema?: string; name: string } {
     let name = this.expectIdentifier(what);
     if (this.atPunct(".") && this.isIdentifierToken(this.peek(1))) {

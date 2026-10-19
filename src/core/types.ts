@@ -39,10 +39,10 @@ export interface IndexSchema {
   unique: boolean;
 }
 
-/** Column metadata returned with query results. */
+/** Column metadata returned with query results. `"ANY"` when the type depends on runtime values (parameters, mixed CASE arms). */
 export interface ResultColumn {
   name: string;
-  type: DataType;
+  type: DataType | "ANY";
 }
 
 export interface QueryResult {
