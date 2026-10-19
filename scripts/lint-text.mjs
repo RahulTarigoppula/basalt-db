@@ -10,13 +10,13 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const BANNED = new Map([
-  [" - ", "em dash (U+2014)"],
-  ["-", "en dash (U+2013)"],
-  ["'", "left single quote (U+2018)"],
-  ["'", "right single quote (U+2019)"],
-  [""", "left double quote (U+201C)"],
-  [""", "right double quote (U+201D)"],
-  ["->", "rightwards arrow (U+2192)"],
+  ["—", "em dash (U+2014)"],
+  ["–", "en dash (U+2013)"],
+  ["‘", "left single quote (U+2018)"],
+  ["’", "right single quote (U+2019)"],
+  ["“", "left double quote (U+201C)"],
+  ["”", "right double quote (U+201D)"],
+  ["→", "rightwards arrow (U+2192)"],
 ]);
 const EXEMPT_DIRS = ["data/", "web/public/data/", "scripts/lint-text.mjs"];
 const BINARY_EXT = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|safetensors|bin|pdf|zip)$/i;
